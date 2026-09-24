@@ -13,6 +13,7 @@ function App() {
 
   const [newIngredient, setNewIngredient] = useState('')
   const [selectedIngredients, setSelectedIngredients] = useState([])
+  const [showRecipes, setShowRecipes] = useState(false)
 
   function toggleIngredient(ingredient) {
     if (selectedIngredients.includes(ingredient)) {
@@ -22,7 +23,10 @@ function App() {
     } else {
       setSelectedIngredients([...selectedIngredients, ingredient])
     }
+
+    setShowRecipes(false)
   }
+
   function addIngredient() {
     const cleanedIngredient = newIngredient.trim()
 
@@ -41,7 +45,13 @@ function App() {
     setIngredients([...ingredients, cleanedIngredient])
     setSelectedIngredients([...selectedIngredients, cleanedIngredient])
     setNewIngredient('')
+    setShowRecipes(false)
   }
+
+  function generateRecipes() {
+    setShowRecipes(true)
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -70,11 +80,13 @@ function App() {
                   : 'ingredient'
               }
               onClick={() => toggleIngredient(ingredient)}
+              type="button"
             >
               {ingredient}
             </button>
           ))}
         </div>
+
         <form
           className="add-ingredient-form"
           onSubmit={(event) => {
@@ -88,9 +100,28 @@ function App() {
             onChange={(event) => setNewIngredient(event.target.value)}
             placeholder="Add an ingredient..."
           />
-
           <button type="submit">Add</button>
         </form>
+
+        <button
+          className="generate-button"
+          disabled={selectedIngredients.length === 0}
+          onClick={generateRecipes}
+          type="button"
+        >
+          Generate recipes
+        </button>
+
+        {showRecipes && (
+          <section className="recipe-card">
+            <p className="eyebrow">A LITTLE KITCHEN INSPIRATION</p>
+            <h2>Your ingredient mix</h2>
+            <p>You picked: {selectedIngredients.join(', ')}</p>
+            <p>
+              Morselo will use these ingredients to find recipe ideas.
+            </p>
+          </section>
+        )}
 
         <p className="selection-count">
           {selectedIngredients.length === 0
