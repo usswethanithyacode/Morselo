@@ -1,19 +1,34 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 
 function App() {
-  const [ingredients, setIngredients] = useState([
-    'Eggs',
-    'Tomato',
-    'Onion',
-    'Rice',
-    'Potato',
-    'Cheese',
-  ])
-
+  const [ingredients, setIngredients] = useState([])
   const [newIngredient, setNewIngredient] = useState('')
   const [selectedIngredients, setSelectedIngredients] = useState([])
   const [showRecipes, setShowRecipes] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    async function fetchIngredients() {
+      try {
+        const response = await fetch('http://localhost:5000/api/ingredients')
+
+        if (!response.ok) {
+          throw new Error('Could not load ingredients.')
+        }
+
+        const data = await response.json()
+        setIngredients(data)
+      } catch (error) {
+        setError('Could not connect to Morselo. Is the backend running?')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchIngredients()
+  }, [])
 
   function toggleIngredient(ingredient) {
     if (selectedIngredients.includes(ingredient)) {
@@ -70,22 +85,28 @@ function App() {
       <section className="ingredient-section">
         <h2>Choose your ingredients</h2>
 
-        <div className="ingredient-list">
-          {ingredients.map((ingredient) => (
-            <button
-              key={ingredient}
-              className={
-                selectedIngredients.includes(ingredient)
-                  ? 'ingredient selected'
-                  : 'ingredient'
-              }
-              onClick={() => toggleIngredient(ingredient)}
-              type="button"
-            >
-              {ingredient}
-            </button>
-          ))}
-        </div>
+        {loading && <p>Loading ingredients...</p>}
+
+        {error && <p role="alert">{error}</p>}
+
+        {!loading && !error && (
+          <div className="ingredient-list">
+            {ingredients.map((ingredient) => (
+              <button
+                key={ingredient}
+                className={
+                  selectedIngredients.includes(ingredient)
+                    ? 'ingredient selected'
+                    : 'ingredient'
+                }
+                onClick={() => toggleIngredient(ingredient)}
+                type="button"
+              >
+                {ingredient}
+              </button>
+            ))}
+          </div>
+        )}
 
         <form
           className="add-ingredient-form"
