@@ -5,8 +5,9 @@ function App() {
   const [ingredients, setIngredients] = useState([])
   const [newIngredient, setNewIngredient] = useState('')
   const [selectedIngredients, setSelectedIngredients] = useState([])
-  const [showRecipes, setShowRecipes] = useState(false)
+  const [recipes, setRecipes] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -39,7 +40,8 @@ function App() {
       setSelectedIngredients([...selectedIngredients, ingredient])
     }
 
-    setShowRecipes(false)
+    setRecipes(null)
+    setError('')
   }
 
   function addIngredient() {
@@ -60,11 +62,47 @@ function App() {
     setIngredients([...ingredients, cleanedIngredient])
     setSelectedIngredients([...selectedIngredients, cleanedIngredient])
     setNewIngredient('')
-    setShowRecipes(false)
+    setRecipes(null)
+    setError('')
   }
 
-  function generateRecipes() {
-    setShowRecipes(true)
+  async function generateRecipes() {
+    if (selectedIngredients.length === 0 || generating) {
+      return
+    }
+
+    setGenerating(true)
+    setRecipes(null)
+    setError('')
+
+    try {
+      const response = await fetch(
+        'http://localhost:5000/api/recipes/generate',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ingredients: selectedIngredients,
+          }),
+        }
+      )
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Could not generate recipes.')
+      }
+
+      setRecipes(data)
+    } catch (error) {
+      setError(
+        error.message || 'Could not connect to Morselo. Is the backend running?'
+      )
+    } finally {
+      setGenerating(false)
+    }
   }
 
   return (
@@ -89,7 +127,7 @@ function App() {
 
         {error && <p role="alert">{error}</p>}
 
-        {!loading && !error && (
+        {!loading && (
           <div className="ingredient-list">
             {ingredients.map((ingredient) => (
               <button
@@ -126,21 +164,19 @@ function App() {
 
         <button
           className="generate-button"
-          disabled={selectedIngredients.length === 0}
+          disabled={selectedIngredients.length === 0 || generating}
           onClick={generateRecipes}
           type="button"
         >
-          Generate recipes
+          {generating ? 'Generating...' : 'Generate recipes'}
         </button>
 
-        {showRecipes && (
+        {recipes && (
           <section className="recipe-card">
             <p className="eyebrow">A LITTLE KITCHEN INSPIRATION</p>
-            <h2>Your ingredient mix</h2>
-            <p>You picked: {selectedIngredients.join(', ')}</p>
-            <p>
-              Morselo will use these ingredients to find recipe ideas.
-            </p>
+            <h2>{recipes.recipe.name}</h2>
+            <p>{recipes.recipe.description}</p>
+            <p>You picked: {recipes.ingredients.join(', ')}</p>
           </section>
         )}
 

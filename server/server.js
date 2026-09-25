@@ -16,6 +16,25 @@ app.get('/api/ingredients', (req, res) => {
     res.json(ingredients)
 })
 
+app.post('/api/recipes/generate', (req, res) => {
+    const { ingredients } = req.body
+
+    if (!Array.isArray(ingredients) || ingredients.length === 0) {
+        return res.status(400).json({
+            error: 'Please provide at least one ingredient.',
+        })
+    }
+
+    res.status(200).json({
+        message: 'Ingredients received successfully!',
+        ingredients: ingredients,
+        recipe: {
+            name: 'Your Morselo recipe idea',
+            description: `A simple dish made with ${ingredients.join(', ')}.`,
+        },
+    })
+})
+
 app.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`)
 })
