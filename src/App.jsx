@@ -171,12 +171,28 @@ function App() {
           {generating ? 'Generating...' : 'Generate recipes'}
         </button>
 
-        {recipes && (
+        {recipes?.recipe && (
           <section className="recipe-card">
             <p className="eyebrow">A LITTLE KITCHEN INSPIRATION</p>
+
             <h2>{recipes.recipe.name}</h2>
             <p>{recipes.recipe.description}</p>
-            <p>You picked: {recipes.ingredients.join(', ')}</p>
+
+            <h3>Ingredients</h3>
+            <ul>
+              {recipes.recipe.ingredients?.map((ingredient, index) => (
+                <li key={index}>{ingredient}</li>
+              ))}
+            </ul>
+
+            <h3>Cooking steps</h3>
+            <ol>
+              {recipes.recipe.steps?.map((step, index) => (
+                <li key={index}>{step}</li>
+              ))}
+            </ol>
+
+            <p>You picked: {selectedIngredients.join(', ')}</p>
           </section>
         )}
 
