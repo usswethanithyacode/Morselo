@@ -14,6 +14,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
+  const [ingredientError, setIngredientError] = useState('')
   const [saveMessage, setSaveMessage] = useState('')
 
   useEffect(() => {
@@ -27,8 +28,8 @@ function App() {
 
         const data = await response.json()
         setIngredients(data)
-      } catch (error) {
-        setError('Could not connect to Morselo. Is the backend running?')
+      } catch (err) {
+        setError('Unable to load ingredients. Please make sure the backend server is running and try again.')
       } finally {
         setLoading(false)
       }
@@ -55,6 +56,7 @@ function App() {
     const cleanedIngredient = newIngredient.trim()
 
     if (cleanedIngredient === '') {
+      setIngredientError('Please enter an ingredient.')
       return
     }
 
@@ -63,12 +65,14 @@ function App() {
     )
 
     if (alreadyExists) {
+      setIngredientError('That ingredient is already added.')
       return
     }
 
     setIngredients([...ingredients, cleanedIngredient])
     setSelectedIngredients([...selectedIngredients, cleanedIngredient])
     setNewIngredient('')
+    setIngredientError('')
     setRecipes(null)
     setError('')
     setSaveMessage('')
@@ -105,9 +109,9 @@ function App() {
       }
 
       setRecipes(data)
-    } catch (error) {
+    } catch (err) {
       setError(
-        error.message || 'Could not connect to Morselo. Is the backend running?'
+        'Unable to generate a recipe right now. Please try again in a moment.'
       )
     } finally {
       setGenerating(false)
@@ -163,11 +167,28 @@ function App() {
       <section className="ingredient-section">
         <h2>Choose your ingredients</h2>
 
-        {loading && <p>Loading ingredients...</p>}
+        {error && (
+          <div className="error-banner" role="alert">
+            <span className="error-icon" aria-hidden="true">⚠️</span>
+            <p className="error-text">{error}</p>
+          </div>
+        )}
 
-        {error && <p role="alert">{error}</p>}
+        {loading && (
+          <div className="loading-state">
+            <p>Loading ingredients...</p>
+          </div>
+        )}
 
-        {!loading && (
+        {!loading && ingredients.length === 0 && (
+          <p className="empty-fallback">
+            {error
+              ? 'No ingredients could be loaded. You can still add your own ingredients below.'
+              : 'No ingredients available yet. Add your own ingredients below to get started.'}
+          </p>
+        )}
+
+        {!loading && ingredients.length > 0 && (
           <div className="ingredient-list">
             {ingredients.map((ingredient) => (
               <button
@@ -196,11 +217,24 @@ function App() {
           <input
             type="text"
             value={newIngredient}
-            onChange={(event) => setNewIngredient(event.target.value)}
+            onChange={(event) => {
+              setNewIngredient(event.target.value)
+              if (ingredientError) {
+                setIngredientError('')
+              }
+            }}
             placeholder="Add an ingredient..."
+            aria-describedby={ingredientError ? 'ingredient-error' : undefined}
+            aria-invalid={ingredientError ? 'true' : 'false'}
           />
           <button type="submit">Add</button>
         </form>
+
+        {ingredientError && (
+          <p id="ingredient-error" className="validation-error" role="alert">
+            {ingredientError}
+          </p>
+        )}
 
         <button
           className="generate-button"
@@ -210,6 +244,15 @@ function App() {
         >
           {generating ? 'Generating...' : 'Generate recipes'}
         </button>
+
+        {generating && (
+          <section className="recipe-card recipe-loading-card" aria-live="polite">
+            <div className="generating-indicator">
+              <div className="generating-spinner" aria-hidden="true"></div>
+              <p className="generating-text">Finding the perfect recipe for you...</p>
+            </div>
+          </section>
+        )}
 
         {recipes?.recipe && (
           <section className="recipe-card">

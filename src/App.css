@@ -67,6 +67,43 @@ main {
   font-size: 19px;
 }
 
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  border: 1px solid #f2c2ce;
+  border-radius: 12px;
+  background: #fff0f3;
+  color: #9c2e4b;
+  font-size: 14px;
+}
+
+.error-banner .error-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.error-banner .error-text {
+  margin: 0;
+  color: #9c2e4b;
+}
+
+.loading-state {
+  padding: 8px 0 16px;
+  color: #9b7d87;
+  font-size: 14px;
+  font-style: italic;
+}
+
+.empty-fallback {
+  margin: 8px 0 18px;
+  color: #8c737d;
+  font-size: 14px;
+  font-style: italic;
+}
+
 .ingredient-list {
   display: flex;
   flex-wrap: wrap;
@@ -140,6 +177,13 @@ main {
   transform: translateY(-1px);
 }
 
+.validation-error {
+  margin: 10px 0 0;
+  color: #b84365;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .generate-button {
   width: 100%;
   margin-top: 18px;
@@ -157,6 +201,43 @@ main {
   border: 1px solid #f0d5df;
   border-radius: 18px;
   background: #fff8fa;
+}
+
+.recipe-loading-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 36px 24px;
+}
+
+.generating-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.generating-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #f3d9e2;
+  border-top-color: #d88fa5;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.generating-text {
+  margin: 0;
+  color: #6b535d;
+  font-weight: 500;
+  font-size: 15px;
 }
 
 .recipe-card .eyebrow {
