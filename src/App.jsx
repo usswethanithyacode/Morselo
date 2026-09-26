@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import './App.css'
 
 function App() {
@@ -6,9 +7,14 @@ function App() {
   const [newIngredient, setNewIngredient] = useState('')
   const [selectedIngredients, setSelectedIngredients] = useState([])
   const [recipes, setRecipes] = useState(null)
+  const [savedRecipes, setSavedRecipes] = useState(() => {
+    const saved = localStorage.getItem('morseloSavedRecipes')
+    return saved ? JSON.parse(saved) : []
+  })
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
+  const [saveMessage, setSaveMessage] = useState('')
 
   useEffect(() => {
     async function fetchIngredients() {
@@ -42,6 +48,7 @@ function App() {
 
     setRecipes(null)
     setError('')
+    setSaveMessage('')
   }
 
   function addIngredient() {
@@ -64,6 +71,7 @@ function App() {
     setNewIngredient('')
     setRecipes(null)
     setError('')
+    setSaveMessage('')
   }
 
   async function generateRecipes() {
@@ -74,6 +82,7 @@ function App() {
     setGenerating(true)
     setRecipes(null)
     setError('')
+    setSaveMessage('')
 
     try {
       const response = await fetch(
@@ -105,11 +114,42 @@ function App() {
     }
   }
 
+  function saveRecipe() {
+    if (!recipes?.recipe) {
+      return
+    }
+
+    const alreadySaved = savedRecipes.some(
+      (item) => item.name === recipes.recipe.name
+    )
+
+    if (alreadySaved) {
+      setSaveMessage('This recipe is already saved!')
+      return
+    }
+
+    const updatedSavedRecipes = [...savedRecipes, recipes.recipe]
+
+    setSavedRecipes(updatedSavedRecipes)
+    localStorage.setItem(
+      'morseloSavedRecipes',
+      JSON.stringify(updatedSavedRecipes)
+    )
+    setSaveMessage('Recipe saved to your collection!')
+  }
+
+  const recipeIsSaved = savedRecipes.some(
+    (item) => item.name === recipes?.recipe?.name
+  )
+
   return (
     <main>
       <header className="topbar">
         <span className="brand">Morselo</span>
         <span className="tagline">A little inspiration for your kitchen</span>
+        <Link to="/saved" className="saved-link">
+          Saved recipes
+        </Link>
       </header>
 
       <section className="welcome">
@@ -193,6 +233,17 @@ function App() {
             </ol>
 
             <p>You picked: {selectedIngredients.join(', ')}</p>
+
+            <button
+              className="generate-button"
+              onClick={saveRecipe}
+              type="button"
+              disabled={recipeIsSaved}
+            >
+              {recipeIsSaved ? 'Saved!' : 'Save recipe'}
+            </button>
+
+            {saveMessage && <p role="status">{saveMessage}</p>}
           </section>
         )}
 
