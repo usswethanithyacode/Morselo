@@ -22,6 +22,12 @@ app.get('/api/ingredients', (req, res) => {
 })
 
 app.post('/api/recipes/generate', async (req, res) => {
+    if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({
+            error: 'Invalid request body.',
+        })
+    }
+
     const { ingredients } = req.body
 
     if (!Array.isArray(ingredients) || ingredients.length === 0) {
@@ -29,6 +35,18 @@ app.post('/api/recipes/generate', async (req, res) => {
             error: 'Please provide at least one ingredient.',
         })
     }
+
+    const hasInvalidIngredient = ingredients.some(
+        (item) => typeof item !== 'string' || item.trim().length === 0
+    )
+
+    if (hasInvalidIngredient) {
+        return res.status(400).json({
+            error: 'Each ingredient must be a non-empty text string.',
+        })
+    }
+
+    const cleanedIngredients = ingredients.map((item) => item.trim())
 
     if (!process.env.GEMINI_API_KEY) {
         return res.status(500).json({
@@ -41,7 +59,7 @@ app.post('/api/recipes/generate', async (req, res) => {
 
         const prompt = `
 You are Morselo, a friendly recipe assistant.
-Create one simple recipe using these available ingredients: ${ingredients.join(', ')}.
+Create one simple recipe using these available ingredients: ${cleanedIngredients.join(', ')}.
 
 Return only valid JSON in this exact format:
 {
