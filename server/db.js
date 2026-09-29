@@ -79,24 +79,42 @@ function seedCatalog() {
     seedTransaction()
 }
 
-function getCatalogIngredients() {
+function getCatalogIngredients(options = {}) {
     if (!db) {
         throw new Error('Database is not initialized.')
     }
 
-    // Demonstrates relational INNER JOIN query between ingredients and categories
-    const query = `
+    const { category, sort } = options
+    const params = []
+    let query = `
         SELECT 
             ingredients.id AS id,
             ingredients.name AS name,
             categories.name AS category
         FROM ingredients
         INNER JOIN categories ON ingredients.category_id = categories.id
-        ORDER BY categories.name ASC, ingredients.name ASC
     `
 
+    if (category && typeof category === 'string' && category.trim().length > 0) {
+        query += ` WHERE categories.name = ?`
+        params.push(category.trim())
+    }
+
+    if (sort) {
+        const normalizedSort = typeof sort === 'string' ? sort.trim().toLowerCase() : ''
+        if (normalizedSort === 'asc') {
+            query += ` ORDER BY ingredients.name ASC`
+        } else if (normalizedSort === 'desc') {
+            query += ` ORDER BY ingredients.name DESC`
+        } else {
+            throw new Error('Invalid sort parameter.')
+        }
+    } else {
+        query += ` ORDER BY categories.name ASC, ingredients.name ASC`
+    }
+
     const stmt = db.prepare(query)
-    return stmt.all()
+    return params.length > 0 ? stmt.all(...params) : stmt.all()
 }
 
 module.exports = {

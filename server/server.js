@@ -20,8 +20,22 @@ app.get('/', (req, res) => {
 })
 
 app.get('/api/ingredients', (req, res) => {
+    const { category, sort } = req.query
+
+    if (sort !== undefined) {
+        const normalizedSort = typeof sort === 'string' ? sort.trim().toLowerCase() : ''
+        if (normalizedSort !== 'asc' && normalizedSort !== 'desc') {
+            return res.status(400).json({
+                error: 'Invalid sort parameter. Allowed values are "asc" or "desc".',
+            })
+        }
+    }
+
     try {
-        const catalogRows = getCatalogIngredients()
+        const catalogRows = getCatalogIngredients({
+            category: typeof category === 'string' ? category : undefined,
+            sort: typeof sort === 'string' ? sort.trim().toLowerCase() : undefined,
+        })
         const ingredients = catalogRows.map((row) => row.name)
         return res.status(200).json(ingredients)
     } catch (error) {
