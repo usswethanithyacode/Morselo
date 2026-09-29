@@ -5,6 +5,7 @@ const cors = require('cors')
 const mongoose = require('mongoose')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const Recipe = require('./models/Recipe')
+const { initDatabase, getCatalogIngredients } = require('./db')
 
 const app = express()
 const PORT = 5000
@@ -19,8 +20,16 @@ app.get('/', (req, res) => {
 })
 
 app.get('/api/ingredients', (req, res) => {
-    const ingredients = ['Eggs', 'Tomato', 'Onion', 'Rice', 'Potato', 'Cheese']
-    res.json(ingredients)
+    try {
+        const catalogRows = getCatalogIngredients()
+        const ingredients = catalogRows.map((row) => row.name)
+        return res.status(200).json(ingredients)
+    } catch (error) {
+        console.error('Error fetching ingredient catalog:', error)
+        return res.status(500).json({
+            error: 'Could not fetch ingredients. Please try again.',
+        })
+    }
 })
 
 app.get('/api/recipes', async (req, res) => {
@@ -279,6 +288,12 @@ Do not use ingredients from the list as if the user has them unless they were pr
 })
 
 async function startServer() {
+    try {
+        initDatabase()
+    } catch (error) {
+        console.error('SQLite initialization error:', error.message)
+    }
+
     if (!process.env.MONGODB_URI) {
         console.error('Error: MONGODB_URI is not defined in the environment variables.')
         return
