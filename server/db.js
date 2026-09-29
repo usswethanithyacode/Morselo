@@ -27,6 +27,11 @@ function initDatabase() {
             );
         `)
 
+        // Create index on foreign key category_id to optimize JOINs and category filtering
+        db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_ingredients_category_id ON ingredients(category_id);
+        `)
+
         seedCatalog()
         console.log('SQLite ingredient catalog initialized successfully.')
         return db

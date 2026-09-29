@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS ingredients (
     category_id INTEGER NOT NULL,
     FOREIGN KEY (category_id) REFERENCES categories(id)
 );
+
+-- 3. Foreign Key Index on Child Table
+CREATE INDEX IF NOT EXISTS idx_ingredients_category_id ON ingredients(category_id);
 ```
 
 ### Table Relationships & Keys
@@ -48,7 +51,33 @@ PRAGMA foreign_keys = ON;
 
 ---
 
-## 3. Seed Data & Idempotence
+## 3. Relational Indexing & Query Optimization
+
+### Why `idx_ingredients_category_id` was Added
+1. **Foreign Key Indexing**: While SQLite automatically creates unique indexes for `PRIMARY KEY` and `UNIQUE` constraints (e.g., `sqlite_autoindex_categories_1` on `categories.name` and `sqlite_autoindex_ingredients_1` on `ingredients.name`), **foreign keys are not automatically indexed**.
+2. **Accelerating JOIN and Filter Operations**: When filtering by category (e.g., `WHERE categories.name = ?`), SQLite looks up the category row using its unique index, then performs a foreign key lookup on `ingredients.category_id`. With `idx_ingredients_category_id`, SQLite performs an indexed binary search (`SEARCH ingredients USING INDEX idx_ingredients_category_id (category_id=?)`) rather than a full table scan across `ingredients`.
+
+### Query Plan Analysis (`EXPLAIN QUERY PLAN`)
+For the filtered query:
+```sql
+EXPLAIN QUERY PLAN
+SELECT ingredients.id, ingredients.name, categories.name AS category
+FROM ingredients
+INNER JOIN categories ON ingredients.category_id = categories.id
+WHERE categories.name = ?
+ORDER BY ingredients.name ASC;
+```
+
+**Query Plan Output**:
+```
+1. SEARCH categories USING COVERING INDEX sqlite_autoindex_categories_1 (name=?)
+2. SEARCH ingredients USING INDEX idx_ingredients_category_id (category_id=?)
+3. USE TEMP B-TREE FOR ORDER BY
+```
+
+---
+
+## 4. Seed Data & Idempotence
 
 The initialization routine seeds standard categories and ingredients idempotently using `INSERT OR IGNORE`:
 
@@ -62,7 +91,7 @@ Because `name` fields are `UNIQUE` and queries use `INSERT OR IGNORE`, restartin
 
 ---
 
-## 4. Relational SQL JOIN Query
+## 5. Relational SQL JOIN Query
 
 The `GET /api/ingredients` endpoint queries SQLite using an `INNER JOIN` to fetch ingredients combined with their corresponding category names.
 
@@ -104,7 +133,7 @@ ORDER BY ingredients.name ASC; -- or DESC
 
 ---
 
-## 5. Query Parameters & API Examples
+## 6. Query Parameters & API Examples
 
 The `GET /api/ingredients` endpoint accepts two optional query parameters:
 
