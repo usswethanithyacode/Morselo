@@ -118,13 +118,13 @@ function App() {
     }
   }
 
-  function saveRecipe() {
+  async function saveRecipe() {
     if (!recipes?.recipe) {
       return
     }
 
     const alreadySaved = savedRecipes.some(
-      (item) => item.name === recipes.recipe.name
+      (item) => item.name?.toLowerCase() === recipes.recipe.name?.toLowerCase()
     )
 
     if (alreadySaved) {
@@ -132,18 +132,42 @@ function App() {
       return
     }
 
-    const updatedSavedRecipes = [...savedRecipes, recipes.recipe]
+    try {
+      const response = await fetch('http://localhost:5000/api/recipes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(recipes.recipe),
+      })
 
-    setSavedRecipes(updatedSavedRecipes)
-    localStorage.setItem(
-      'morseloSavedRecipes',
-      JSON.stringify(updatedSavedRecipes)
-    )
-    setSaveMessage('Recipe saved to your collection!')
+      if (!response.ok) {
+        throw new Error('Could not save recipe to server.')
+      }
+
+      const savedData = await response.json()
+      const updatedSavedRecipes = [...savedRecipes, savedData]
+
+      setSavedRecipes(updatedSavedRecipes)
+      localStorage.setItem(
+        'morseloSavedRecipes',
+        JSON.stringify(updatedSavedRecipes)
+      )
+      setSaveMessage('Recipe saved to your collection!')
+    } catch (err) {
+      const updatedSavedRecipes = [...savedRecipes, recipes.recipe]
+
+      setSavedRecipes(updatedSavedRecipes)
+      localStorage.setItem(
+        'morseloSavedRecipes',
+        JSON.stringify(updatedSavedRecipes)
+      )
+      setSaveMessage('Recipe saved to your collection!')
+    }
   }
 
   const recipeIsSaved = savedRecipes.some(
-    (item) => item.name === recipes?.recipe?.name
+    (item) => item.name?.toLowerCase() === recipes?.recipe?.name?.toLowerCase()
   )
 
   return (

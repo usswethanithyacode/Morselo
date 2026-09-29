@@ -2,7 +2,9 @@ require('dotenv').config()
 
 const express = require('express')
 const cors = require('cors')
+const mongoose = require('mongoose')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
+const Recipe = require('./models/Recipe')
 
 const app = express()
 const PORT = 5000
@@ -19,6 +21,195 @@ app.get('/', (req, res) => {
 app.get('/api/ingredients', (req, res) => {
     const ingredients = ['Eggs', 'Tomato', 'Onion', 'Rice', 'Potato', 'Cheese']
     res.json(ingredients)
+})
+
+app.get('/api/recipes', async (req, res) => {
+    try {
+        const recipes = await Recipe.find().sort({ createdAt: -1 })
+        return res.status(200).json(recipes)
+    } catch (error) {
+        console.error('Error fetching recipes:', error)
+        return res.status(500).json({
+            error: 'Could not fetch saved recipes. Please try again.',
+        })
+    }
+})
+
+app.post('/api/recipes', async (req, res) => {
+    if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({
+            error: 'Invalid request body.',
+        })
+    }
+
+    const { name, description, ingredients, steps } = req.body
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return res.status(400).json({
+            error: 'Recipe name must be a non-empty text string.',
+        })
+    }
+
+    if (!Array.isArray(ingredients) || ingredients.length === 0) {
+        return res.status(400).json({
+            error: 'Please provide at least one ingredient.',
+        })
+    }
+
+    const hasInvalidIngredient = ingredients.some(
+        (item) => typeof item !== 'string' || item.trim().length === 0
+    )
+
+    if (hasInvalidIngredient) {
+        return res.status(400).json({
+            error: 'Each ingredient must be a non-empty text string.',
+        })
+    }
+
+    if (!Array.isArray(steps) || steps.length === 0) {
+        return res.status(400).json({
+            error: 'Please provide at least one cooking step.',
+        })
+    }
+
+    const hasInvalidStep = steps.some(
+        (item) => typeof item !== 'string' || item.trim().length === 0
+    )
+
+    if (hasInvalidStep) {
+        return res.status(400).json({
+            error: 'Each step must be a non-empty text string.',
+        })
+    }
+
+    try {
+        const newRecipe = new Recipe({
+            name: name.trim(),
+            description: typeof description === 'string' ? description.trim() : '',
+            ingredients: ingredients.map((item) => item.trim()),
+            steps: steps.map((item) => item.trim()),
+        })
+
+        const savedRecipe = await newRecipe.save()
+        return res.status(201).json(savedRecipe)
+    } catch (error) {
+        console.error('Error saving recipe:', error)
+        return res.status(500).json({
+            error: 'Could not save the recipe. Please try again.',
+        })
+    }
+})
+
+app.put('/api/recipes/:id', async (req, res) => {
+    const { id } = req.params
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+            error: 'Invalid recipe ID format.',
+        })
+    }
+
+    if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({
+            error: 'Invalid request body.',
+        })
+    }
+
+    const { name, description, ingredients, steps } = req.body
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return res.status(400).json({
+            error: 'Recipe name must be a non-empty text string.',
+        })
+    }
+
+    if (!Array.isArray(ingredients) || ingredients.length === 0) {
+        return res.status(400).json({
+            error: 'Please provide at least one ingredient.',
+        })
+    }
+
+    const hasInvalidIngredient = ingredients.some(
+        (item) => typeof item !== 'string' || item.trim().length === 0
+    )
+
+    if (hasInvalidIngredient) {
+        return res.status(400).json({
+            error: 'Each ingredient must be a non-empty text string.',
+        })
+    }
+
+    if (!Array.isArray(steps) || steps.length === 0) {
+        return res.status(400).json({
+            error: 'Please provide at least one cooking step.',
+        })
+    }
+
+    const hasInvalidStep = steps.some(
+        (item) => typeof item !== 'string' || item.trim().length === 0
+    )
+
+    if (hasInvalidStep) {
+        return res.status(400).json({
+            error: 'Each step must be a non-empty text string.',
+        })
+    }
+
+    try {
+        const updatedRecipe = await Recipe.findByIdAndUpdate(
+            id,
+            {
+                name: name.trim(),
+                description: typeof description === 'string' ? description.trim() : '',
+                ingredients: ingredients.map((item) => item.trim()),
+                steps: steps.map((item) => item.trim()),
+            },
+            { new: true, runValidators: true }
+        )
+
+        if (!updatedRecipe) {
+            return res.status(404).json({
+                error: 'Recipe not found.',
+            })
+        }
+
+        return res.status(200).json(updatedRecipe)
+    } catch (error) {
+        console.error('Error updating recipe:', error)
+        return res.status(500).json({
+            error: 'Could not update the recipe. Please try again.',
+        })
+    }
+})
+
+app.delete('/api/recipes/:id', async (req, res) => {
+    const { id } = req.params
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+            error: 'Invalid recipe ID format.',
+        })
+    }
+
+    try {
+        const deletedRecipe = await Recipe.findByIdAndDelete(id)
+
+        if (!deletedRecipe) {
+            return res.status(404).json({
+                error: 'Recipe not found.',
+            })
+        }
+
+        return res.status(200).json({
+            message: 'Recipe deleted successfully.',
+            recipe: deletedRecipe,
+        })
+    } catch (error) {
+        console.error('Error deleting recipe:', error)
+        return res.status(500).json({
+            error: 'Could not delete the recipe. Please try again.',
+        })
+    }
 })
 
 app.post('/api/recipes/generate', async (req, res) => {
@@ -87,6 +278,23 @@ Do not use ingredients from the list as if the user has them unless they were pr
     }
 })
 
-app.listen(PORT, () => {
-    console.log(`Server is running at http://localhost:${PORT}`)
-})
+async function startServer() {
+    if (!process.env.MONGODB_URI) {
+        console.error('Error: MONGODB_URI is not defined in the environment variables.')
+        return
+    }
+
+    try {
+        await mongoose.connect(process.env.MONGODB_URI)
+        console.log('Connected to MongoDB Atlas successfully.')
+
+        app.listen(PORT, () => {
+            console.log(`Server is running at http://localhost:${PORT}`)
+        })
+    } catch (error) {
+        const safeMessage = (error.message || '').replace(/mongodb(\+srv)?:\/\/[^@]+@/gi, 'mongodb+srv://[credentials-hidden]@')
+        console.error(`MongoDB connection error [${error.name || 'Error'}]: ${safeMessage}`)
+    }
+}
+
+startServer()
