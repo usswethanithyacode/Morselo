@@ -233,6 +233,51 @@ async function getCatalogIngredients(options = {}) {
     }))
 }
 
+/**
+ * Retrieves the ingredient catalog joined with parent categories using an explicit PostgreSQL INNER JOIN query.
+ * Demonstrates relational SQL JOIN across 'ingredients' and 'categories' tables.
+ */
+async function getJoinedIngredientCatalog(options = {}) {
+    const { category, sort } = options
+    const replacements = {}
+    let whereClause = ''
+
+    if (category && typeof category === 'string' && category.trim().length > 0) {
+        whereClause = 'WHERE c.name = :category'
+        replacements.category = category.trim()
+    }
+
+    let orderClause = 'ORDER BY c.name ASC, i.name ASC'
+    if (sort) {
+        const normalizedSort = typeof sort === 'string' ? sort.trim().toLowerCase() : ''
+        if (normalizedSort === 'asc') {
+            orderClause = 'ORDER BY i.name ASC'
+        } else if (normalizedSort === 'desc') {
+            orderClause = 'ORDER BY i.name DESC'
+        } else {
+            throw new Error('Invalid sort parameter.')
+        }
+    }
+
+    const sql = `
+        SELECT
+            i.id,
+            i.name,
+            c.name AS category
+        FROM ingredients i
+        INNER JOIN categories c ON i.category_id = c.id
+        ${whereClause}
+        ${orderClause};
+    `
+
+    const results = await db.query(sql, {
+        replacements,
+        type: Sequelize.QueryTypes.SELECT,
+    })
+
+    return results
+}
+
 module.exports = {
     sequelize: db,
     Category,
@@ -241,4 +286,5 @@ module.exports = {
     seedCatalog,
     addCategoryWithIngredients,
     getCatalogIngredients,
+    getJoinedIngredientCatalog,
 }

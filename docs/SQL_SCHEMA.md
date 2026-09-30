@@ -60,65 +60,71 @@ In a normalized relational database (3NF), category metadata is decoupled from i
 ### 4. JOIN Type Used: `INNER JOIN`
 Morselo utilizes an **`INNER JOIN`** because every active ingredient in the catalog must belong to an existing category. Only rows where `ingredients.category_id` strictly matches `categories.id` are returned.
 
-### 5. Equivalent Raw SQL Concept & Query
-```sql
-SELECT
-    ingredients.id,
-    ingredients.name AS ingredient_name,
-    categories.name AS category_name
-FROM ingredients
-INNER JOIN categories
-    ON ingredients.category_id = categories.id
-ORDER BY categories.name ASC, ingredients.name ASC;
-```
-
-When filtering by category (e.g., "Vegetables"):
-```sql
-SELECT
-    ingredients.id,
-    ingredients.name AS ingredient_name,
-    categories.name AS category_name
-FROM ingredients
-INNER JOIN categories
-    ON ingredients.category_id = categories.id
-WHERE categories.name = 'Vegetables'
-ORDER BY ingredients.name ASC;
-```
-
-### 6. How Sequelize Represents the Relationship & Generates the JOIN
+### 5. Explicit PostgreSQL Parameterized SQL INNER JOIN Query
 In [`server/db.js`](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/db.js):
+```sql
+SELECT
+    i.id,
+    i.name,
+    c.name AS category
+FROM ingredients i
+INNER JOIN categories c ON i.category_id = c.id
+WHERE c.name = :category
+ORDER BY c.name ASC, i.name ASC;
+```
 
-1. **Association Definition**:
-   ```javascript
-   Category.hasMany(Ingredient, { foreignKey: 'category_id' });
-   Ingredient.belongsTo(Category, { foreignKey: 'category_id' });
-   ```
-2. **Eager Loading Query**:
-   ```javascript
-   const ingredients = await Ingredient.findAll({
-       attributes: ['id', 'name'],
-       include: [{
-           model: Category,
-           attributes: ['name'],
-           required: true, // Instructs Sequelize to emit an SQL INNER JOIN
-           where: category ? { name: category.trim() } : undefined,
-       }],
-       order: orderClause,
-   });
-   ```
-3. **Actual Generated SQL Captured from PostgreSQL**:
-   ```sql
-   SELECT "Ingredient"."id", "Ingredient"."name", "Category"."id" AS "Category.id", "Category"."name" AS "Category.name"
-   FROM "ingredients" AS "Ingredient"
-   INNER JOIN "categories" AS "Category"
-       ON "Ingredient"."category_id" = "Category"."id"
-   ORDER BY "Category"."name" ASC, "Ingredient"."name" ASC;
-   ```
+### 6. Implementation & Execution
+In [`server/db.js`](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/db.js) via `getJoinedIngredientCatalog`:
+```javascript
+async function getJoinedIngredientCatalog(options = {}) {
+    const { category, sort } = options;
+    const replacements = {};
+    let whereClause = '';
 
-### 7. Which Morselo Endpoint Demonstrates the JOIN
-- **`GET /api/ingredients`**: Calls `getCatalogIngredients()` executing the Sequelize `INNER JOIN` query.
-- **`GET /api/ingredients?category=Vegetables`**: Applies parameter filtering on the joined `categories` table.
-- **`GET /api/ingredients?sort=asc|desc`**: Applies sorting to the joined dataset.
+    if (category && typeof category === 'string' && category.trim().length > 0) {
+        whereClause = 'WHERE c.name = :category';
+        replacements.category = category.trim();
+    }
+
+    let orderClause = 'ORDER BY c.name ASC, i.name ASC';
+    if (sort) {
+        const normalizedSort = typeof sort === 'string' ? sort.trim().toLowerCase() : '';
+        if (normalizedSort === 'asc') {
+            orderClause = 'ORDER BY i.name ASC';
+        } else if (normalizedSort === 'desc') {
+            orderClause = 'ORDER BY i.name DESC';
+        } else {
+            throw new Error('Invalid sort parameter.');
+        }
+    }
+
+    const sql = `
+        SELECT
+            i.id,
+            i.name,
+            c.name AS category
+        FROM ingredients i
+        INNER JOIN categories c ON i.category_id = c.id
+        ${whereClause}
+        ${orderClause};
+    `;
+
+    const results = await db.query(sql, {
+        replacements,
+        type: Sequelize.QueryTypes.SELECT,
+    });
+
+    return results;
+}
+```
+
+### 7. User-Facing Frontend Integration & Endpoints Demonstrating the JOIN
+- **`GET /api/ingredients/catalog`**: Returns joined catalog objects `{ id, name, category }` directly to the client.
+- **Frontend UI ([`src/App.jsx`](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/src/App.jsx))**:
+  - Consumes `GET /api/ingredients/catalog` upon page loading.
+  - Dynamically renders category filter buttons ("All", "Dairy & Eggs", "Vegetables", etc.) based on distinct joined categories.
+  - Renders category pill badges on every ingredient button, visually displaying the relational link between the `ingredients` and `categories` tables.
+- **`GET /api/ingredients`**: Backward-compatible array of ingredient name strings.
 
 ---
 

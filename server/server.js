@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken')
 const bcrypt = require('bcryptjs')
 const Recipe = require('./models/Recipe')
 const User = require('./models/User')
-const { initDatabase, getCatalogIngredients, addCategoryWithIngredients } = require('./db')
+const { initDatabase, getCatalogIngredients, addCategoryWithIngredients, getJoinedIngredientCatalog } = require('./db')
 const { authenticateToken, requireRole } = require('./middleware/auth')
 
 const app = express()
@@ -152,6 +152,33 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 })
 
 // --- Catalog & Recipe Endpoints ---
+
+// --- SQL INNER JOIN Endpoint: Ingredient Catalog with Joined Categories ---
+app.get('/api/ingredients/catalog', async (req, res) => {
+    const { category, sort } = req.query
+
+    if (sort !== undefined) {
+        const normalizedSort = typeof sort === 'string' ? sort.trim().toLowerCase() : ''
+        if (normalizedSort !== 'asc' && normalizedSort !== 'desc') {
+            return res.status(400).json({
+                error: 'Invalid sort parameter. Allowed values are "asc" or "desc".',
+            })
+        }
+    }
+
+    try {
+        const catalog = await getJoinedIngredientCatalog({
+            category: typeof category === 'string' ? category : undefined,
+            sort: typeof sort === 'string' ? sort.trim().toLowerCase() : undefined,
+        })
+        return res.status(200).json(catalog)
+    } catch (error) {
+        console.error('Error fetching joined ingredient catalog via SQL JOIN:', error.message)
+        return res.status(500).json({
+            error: 'Could not fetch ingredient catalog. Please try again.',
+        })
+    }
+})
 
 app.get('/api/ingredients', async (req, res) => {
     const { category, sort } = req.query

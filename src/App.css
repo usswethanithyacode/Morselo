@@ -152,6 +152,37 @@ main {
   font-style: italic;
 }
 
+.category-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.category-pill {
+  padding: 6px 14px;
+  border: 1px solid #ebd7df;
+  border-radius: 999px;
+  background: #fdf5f7;
+  color: #8c6e7a;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.category-pill:hover {
+  background: #fce7ef;
+  color: #513b43;
+}
+
+.category-pill.active {
+  background: #d88fa5;
+  border-color: #d88fa5;
+  color: #ffffff;
+  font-weight: 600;
+}
+
 .ingredient-list {
   display: flex;
   flex-wrap: wrap;
@@ -159,6 +190,8 @@ main {
 }
 
 .ingredient {
+  display: inline-flex;
+  align-items: center;
   padding: 11px 20px;
   border: 1px solid #f0d5df;
   border-radius: 999px;
@@ -177,6 +210,23 @@ main {
 .ingredient.selected {
   border-color: #d88fa5;
   background: #fce7ef;
+  color: #513b43;
+}
+
+.ingredient-category-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(216, 143, 165, 0.15);
+  color: #8c576a;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+.ingredient.selected .ingredient-category-tag {
+  background: rgba(81, 59, 67, 0.12);
   color: #513b43;
 }
 

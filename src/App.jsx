@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import './App.css'
 
 function App() {
-  const [ingredients, setIngredients] = useState([])
+  const [catalog, setCatalog] = useState([])
+  const [activeCategory, setActiveCategory] = useState('All')
   const [newIngredient, setNewIngredient] = useState('')
   const [selectedIngredients, setSelectedIngredients] = useState([])
   const [recipes, setRecipes] = useState(null)
@@ -18,16 +19,16 @@ function App() {
   const [saveMessage, setSaveMessage] = useState('')
 
   useEffect(() => {
-    async function fetchIngredients() {
+    async function fetchCatalog() {
       try {
-        const response = await fetch('http://localhost:5000/api/ingredients')
+        const response = await fetch('http://localhost:5000/api/ingredients/catalog')
 
         if (!response.ok) {
           throw new Error('Could not load ingredients.')
         }
 
         const data = await response.json()
-        setIngredients(data)
+        setCatalog(data)
       } catch (err) {
         setError('Unable to load ingredients. Please make sure the backend server is running and try again.')
       } finally {
@@ -35,16 +36,16 @@ function App() {
       }
     }
 
-    fetchIngredients()
+    fetchCatalog()
   }, [])
 
-  function toggleIngredient(ingredient) {
-    if (selectedIngredients.includes(ingredient)) {
+  function toggleIngredient(ingredientName) {
+    if (selectedIngredients.includes(ingredientName)) {
       setSelectedIngredients(
-        selectedIngredients.filter((item) => item !== ingredient)
+        selectedIngredients.filter((item) => item !== ingredientName)
       )
     } else {
-      setSelectedIngredients([...selectedIngredients, ingredient])
+      setSelectedIngredients([...selectedIngredients, ingredientName])
     }
 
     setRecipes(null)
@@ -60,8 +61,8 @@ function App() {
       return
     }
 
-    const alreadyExists = ingredients.some(
-      (item) => item.toLowerCase() === cleanedIngredient.toLowerCase()
+    const alreadyExists = catalog.some(
+      (item) => item.name.toLowerCase() === cleanedIngredient.toLowerCase()
     )
 
     if (alreadyExists) {
@@ -69,7 +70,13 @@ function App() {
       return
     }
 
-    setIngredients([...ingredients, cleanedIngredient])
+    const newEntry = {
+      id: Date.now(),
+      name: cleanedIngredient,
+      category: 'Custom',
+    }
+
+    setCatalog([...catalog, newEntry])
     setSelectedIngredients([...selectedIngredients, cleanedIngredient])
     setNewIngredient('')
     setIngredientError('')
@@ -170,6 +177,12 @@ function App() {
     (item) => item.name?.toLowerCase() === recipes?.recipe?.name?.toLowerCase()
   )
 
+  const categories = ['All', ...new Set(catalog.map((i) => i.category).filter(Boolean))]
+  const displayedIngredients =
+    activeCategory === 'All'
+      ? catalog
+      : catalog.filter((i) => i.category === activeCategory)
+
   return (
     <main>
       <header className="topbar">
@@ -200,11 +213,11 @@ function App() {
 
         {loading && (
           <div className="loading-state">
-            <p>Loading ingredients...</p>
+            <p>Loading ingredients from catalog...</p>
           </div>
         )}
 
-        {!loading && ingredients.length === 0 && (
+        {!loading && catalog.length === 0 && (
           <p className="empty-fallback">
             {error
               ? 'No ingredients could be loaded. You can still add your own ingredients below.'
@@ -212,20 +225,38 @@ function App() {
           </p>
         )}
 
-        {!loading && ingredients.length > 0 && (
-          <div className="ingredient-list">
-            {ingredients.map((ingredient) => (
+        {!loading && catalog.length > 0 && categories.length > 1 && (
+          <div className="category-filter-bar" aria-label="Filter by category">
+            {categories.map((cat) => (
               <button
-                key={ingredient}
+                key={cat}
+                type="button"
+                className={activeCategory === cat ? 'category-pill active' : 'category-pill'}
+                onClick={() => setActiveCategory(cat)}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!loading && displayedIngredients.length > 0 && (
+          <div className="ingredient-list">
+            {displayedIngredients.map((item) => (
+              <button
+                key={item.id || item.name}
                 className={
-                  selectedIngredients.includes(ingredient)
+                  selectedIngredients.includes(item.name)
                     ? 'ingredient selected'
                     : 'ingredient'
                 }
-                onClick={() => toggleIngredient(ingredient)}
+                onClick={() => toggleIngredient(item.name)}
                 type="button"
               >
-                {ingredient}
+                <span className="ingredient-name">{item.name}</span>
+                {item.category && item.category !== 'Custom' && (
+                  <span className="ingredient-category-tag">{item.category}</span>
+                )}
               </button>
             ))}
           </div>
