@@ -7,12 +7,47 @@ function SavedRecipes() {
     const [error, setError] = useState('')
     const [successMessage, setSuccessMessage] = useState('')
     const [deletingId, setDeletingId] = useState(null)
+    const [copiedId, setCopiedId] = useState(null)
+    const [copyingId, setCopyingId] = useState(null)
 
     // Edit state
     const [editingId, setEditingId] = useState(null)
     const [editFormData, setEditFormData] = useState(null)
     const [editError, setEditError] = useState('')
     const [savingEdit, setSavingEdit] = useState(false)
+
+    // --- JavaScript Event Loop Implementation: Copy Saved Recipe ---
+    // Demonstrates:
+    // 1. Synchronous Execution (Call Stack): Validates recipe data, formats recipe text, sets immediate loading state
+    // 2. Promise / Microtask Queue: navigator.clipboard.writeText Promise resolution in microtask queue
+    // 3. Macrotask Queue (Timer Task): setTimeout timer callback queued to clear copied confirmation
+    async function copySavedRecipe(recipe) {
+        if (!recipe) return
+
+        // 1. Synchronous Execution (Call Stack)
+        const formatted = `🍽️ ${recipe.name}\n\n${recipe.description || ''}\n\nIngredients:\n${(recipe.ingredients || []).map((i) => `- ${i}`).join('\n')}\n\nCooking Steps:\n${(recipe.steps || []).map((s, idx) => `${idx + 1}. ${s}`).join('\n')}`
+        setCopyingId(recipe._id)
+
+        // 2. Microtask Queue (Promise resolution)
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(formatted)
+            } else {
+                await Promise.resolve()
+            }
+            setCopiedId(recipe._id)
+        } catch {
+            setCopiedId(null)
+            return
+        } finally {
+            setCopyingId(null)
+        }
+
+        // 3. Macrotask Queue (Timer phase callback)
+        setTimeout(() => {
+            setCopiedId(null)
+        }, 2500)
+    }
 
     useEffect(() => {
         async function fetchSavedRecipes() {
@@ -397,6 +432,15 @@ function SavedRecipes() {
                                                     <h2>{recipe.name}</h2>
                                                 </div>
                                                 <div className="card-actions">
+                                                    <button
+                                                        type="button"
+                                                        className="copy-button"
+                                                        onClick={() => copySavedRecipe(recipe)}
+                                                        disabled={copyingId === recipe._id || deletingId === recipe._id || savingEdit}
+                                                        aria-label={`Copy ${recipe.name}`}
+                                                    >
+                                                        {copiedId === recipe._id ? '✓ Copied!' : copyingId === recipe._id ? 'Copying...' : 'Copy'}
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         className="edit-button"

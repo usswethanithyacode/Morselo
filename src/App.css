@@ -365,6 +365,7 @@ main {
   flex-shrink: 0;
 }
 
+.copy-button,
 .edit-button {
   border: 1px solid #f0d5df;
   border-radius: 10px;
@@ -379,12 +380,14 @@ main {
   white-space: nowrap;
 }
 
+.copy-button:hover:not(:disabled),
 .edit-button:hover:not(:disabled) {
   background: #fce7ef;
   border-color: #d88fa5;
   transform: translateY(-1px);
 }
 
+.copy-button:disabled,
 .edit-button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
