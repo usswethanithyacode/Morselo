@@ -1,19 +1,19 @@
-# Morselo SQL Relational Database Architecture
+# Morselo SQL Relational Database Architecture & ORM Design
 
-This document describes the relational database design for Morselo's Ingredient Catalog using **PostgreSQL** (hosted on **Neon**) with the `pg` driver.
+This document describes the relational database design for Morselo's Ingredient Catalog using **PostgreSQL** (hosted on **Neon**) with the **Sequelize ORM** (`sequelize` / `pg`).
 
 ---
 
 ## 1. Overview & Separation of Concerns
 
-- **PostgreSQL (Neon)**: Stores normalized, relational catalog data (ingredients categorized under taxonomy buckets). Configured via `DATABASE_URL` with SSL enabled.
-- **MongoDB Atlas**: Stores flexible recipe documents (name, description, ingredients list, cooking steps, timestamps).
+- **PostgreSQL (Neon)**: Stores normalized, relational catalog data (ingredients categorized under taxonomy buckets). Managed via **Sequelize ORM** with SSL enabled.
+- **MongoDB Atlas**: Stores flexible recipe documents (name, description, ingredients list, cooking steps, timestamps) via **Mongoose**.
 
 ---
 
 ## 2. Relational Schema Design
 
-The catalog uses two normalized relational tables with explicit Primary Key (PK) and Foreign Key (FK) constraints:
+The catalog is modeled around two normalized relational tables with explicit Primary Key (PK) and Foreign Key (FK) constraints:
 
 ```sql
 -- 1. Categories Table (Parent)
@@ -44,67 +44,114 @@ CREATE INDEX IF NOT EXISTS idx_ingredients_category_id ON ingredients(category_i
 
 ---
 
-## 3. Relational Indexing & Query Optimization
+## 3. ORM Usage — Sequelize
 
-### Why `idx_ingredients_category_id` was Added
-1. **Foreign Key Indexing**: PostgreSQL automatically creates unique b-tree indexes for `PRIMARY KEY` and `UNIQUE` constraints (e.g., `categories_pkey`, `categories_name_key`, and `ingredients_name_key`), but **foreign keys are not automatically indexed**.
-2. **Accelerating JOIN and Filter Operations**: When filtering by category (e.g., `WHERE categories.name = $1`), PostgreSQL looks up the category row using its unique index on `name`, then performs a foreign key lookup on `ingredients.category_id`. With `idx_ingredients_category_id`, PostgreSQL performs an indexed index scan (`Bitmap Index Scan on idx_ingredients_category_id`) rather than scanning all rows in `ingredients`.
+Morselo utilizes the **Sequelize ORM** (`sequelize` v6) to define relational models, manage associations, and execute relational `INNER JOIN` queries.
+
+### Model Definitions & Associations ([server/db.js](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/db.js))
+
+```javascript
+const { Sequelize, DataTypes } = require('sequelize')
+
+// 1. Category Model
+const Category = sequelize.define('Category', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    name: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        unique: true,
+    },
+}, {
+    tableName: 'categories',
+    timestamps: false,
+})
+
+// 2. Ingredient Model
+const Ingredient = sequelize.define('Ingredient', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    name: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        unique: true,
+    },
+    category_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+            model: Category,
+            key: 'id',
+        },
+    },
+}, {
+    tableName: 'ingredients',
+    timestamps: false,
+})
+
+// 3. Relational Associations (PK/FK)
+Category.hasMany(Ingredient, { foreignKey: 'category_id' })
+Ingredient.belongsTo(Category, { foreignKey: 'category_id' })
+```
+
+### ORM Eager Loading (`INNER JOIN`) Query
+
+The `getCatalogIngredients()` function uses Sequelize's `findAll` with eager loading (`include: [Category]`):
+
+```javascript
+const ingredients = await Ingredient.findAll({
+    attributes: ['id', 'name'],
+    include: [{
+        model: Category,
+        attributes: ['name'],
+        required: true, // Forces INNER JOIN
+        where: category ? { name: category } : undefined, // Parameterized filtering
+    }],
+    order: sort
+        ? [['name', sort.toUpperCase()]]
+        : [[{ model: Category }, 'name', 'ASC'], ['name', 'ASC']],
+})
+```
+
+### Generated SQL from Sequelize
+
+When executed, Sequelize dynamically constructs and executes the parameterized relational `INNER JOIN` query:
+
+```sql
+SELECT 
+    "Ingredient"."id", 
+    "Ingredient"."name", 
+    "Category"."name" AS "Category.name" 
+FROM "ingredients" AS "Ingredient" 
+INNER JOIN "categories" AS "Category" 
+    ON "Ingredient"."category_id" = "Category"."id" 
+ORDER BY "Category"."name" ASC, "Ingredient"."name" ASC;
+```
 
 ---
 
-## 4. Seed Data & Idempotence
+## 4. Relational Indexing & Query Optimization
 
-The initialization routine seeds standard categories and ingredients idempotently using PostgreSQL `ON CONFLICT (name) DO NOTHING`:
+- **Foreign Key Index (`idx_ingredients_category_id`)**: Accelerates foreign key lookups when joining `ingredients` with `categories` and filtering by category name.
+- Non-destructive startup synchronization ensures indexes and tables exist without altering existing data.
+
+---
+
+## 5. Seed Data & Idempotence
+
+The initialization routine seeds standard categories and ingredients idempotently using Sequelize's `findOrCreate`:
 
 | Category | Ingredients |
 | :--- | :--- |
 | **Dairy & Eggs** | Eggs, Cheese |
 | **Vegetables** | Tomato, Onion, Potato |
 | **Pantry & Grains** | Rice |
-
-Because `name` fields are `UNIQUE` and queries use `ON CONFLICT (name) DO NOTHING`, restarting the server or running initialization multiple times will never duplicate data.
-
----
-
-## 5. Relational SQL JOIN Query
-
-The `GET /api/ingredients` endpoint queries PostgreSQL using an `INNER JOIN` to fetch ingredients combined with their corresponding category names.
-
-### Base Query (Default)
-```sql
-SELECT 
-    ingredients.id AS id,
-    ingredients.name AS name,
-    categories.name AS category
-FROM ingredients
-INNER JOIN categories ON ingredients.category_id = categories.id
-ORDER BY categories.name ASC, ingredients.name ASC;
-```
-
-### Query with Category Filter (Parameterized)
-When `category` is supplied (e.g. `?category=Vegetables`), a parameterized `WHERE` clause is applied using PostgreSQL `$1` placeholders to prevent SQL injection:
-```sql
-SELECT 
-    ingredients.id AS id,
-    ingredients.name AS name,
-    categories.name AS category
-FROM ingredients
-INNER JOIN categories ON ingredients.category_id = categories.id
-WHERE categories.name = $1
-ORDER BY categories.name ASC, ingredients.name ASC;
-```
-
-### Query with Name Sorting
-When `sort` is supplied (`asc` or `desc`, validated against an allowlist):
-```sql
-SELECT 
-    ingredients.id AS id,
-    ingredients.name AS name,
-    categories.name AS category
-FROM ingredients
-INNER JOIN categories ON ingredients.category_id = categories.id
-ORDER BY ingredients.name ASC; -- or DESC
-```
 
 ---
 
@@ -114,7 +161,7 @@ The `GET /api/ingredients` endpoint accepts two optional query parameters:
 
 | Parameter | Allowed Values | Description |
 | :--- | :--- | :--- |
-| `category` | String (e.g. `Vegetables`, `Dairy & Eggs`) | Filters ingredients by category name using parameterized SQL (`$1`). |
+| `category` | String (e.g. `Vegetables`, `Dairy & Eggs`) | Filters ingredients by category name using parameterized ORM query. |
 | `sort` | `asc`, `desc` (case-insensitive) | Sorts ingredients alphabetically by name. Invalid values return `400 Bad Request`. |
 
 ### Example Requests & Responses
