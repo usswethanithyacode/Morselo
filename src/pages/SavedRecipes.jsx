@@ -49,56 +49,117 @@ function SavedRecipes() {
         }, 2500)
     }
 
+    const [selectedPhotoFile, setSelectedPhotoFile] = useState(null)
+    const [photoError, setPhotoError] = useState('')
+    const [photoAsyncMethod, setPhotoAsyncMethod] = useState('')
+
+    // =========================================================================
+    // JavaScript Async Concepts: Native FileReader Callbacks vs Promises
+    // =========================================================================
+
+    /**
+     * 1. NATIVE CALLBACK-BASED ASYNCHRONOUS HELPER
+     * Uses browser-native FileReader event-based asynchronous API.
+     * Contains NO Promises, NO .then(), and NO async/await internally.
+     * Follows the traditional error-first callback pattern: callback(error, result).
+     */
+    function readRecipePhotoWithCallback(file, callback) {
+        if (!file) {
+            callback(new Error('No file provided to FileReader.'), null)
+            return
+        }
+
+        const reader = new FileReader()
+
+        reader.onload = () => {
+            // Explicitly invokes callback on successful async read
+            callback(null, reader.result)
+        }
+
+        reader.onerror = () => {
+            // Explicitly invokes callback with error on read failure
+            callback(new Error('Unable to read the recipe image file.'), null)
+        }
+
+        reader.readAsDataURL(file)
+    }
+
+    /**
+     * 2. NATIVE PROMISE-BASED ASYNCHRONOUS HELPER
+     * Returns a new Promise instance around the browser-native FileReader.
+     * Resolves with data URL string or rejects with an Error.
+     */
+    function readRecipePhotoWithPromise(file) {
+        return new Promise((resolve, reject) => {
+            if (!file) {
+                reject(new Error('No file provided to FileReader.'))
+                return
+            }
+
+            const reader = new FileReader()
+
+            reader.onload = () => {
+                resolve(reader.result)
+            }
+
+            reader.onerror = () => {
+                reject(new Error('Unable to read the recipe image file.'))
+            }
+
+            reader.readAsDataURL(file)
+        })
+    }
+
+    // --- Callback Consumer Flow ---
+    function handlePhotoSelectWithCallback(e) {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        setSelectedPhotoFile(file)
+        setPhotoError('')
+
+        // Explicitly invokes the callback helper:
+        readRecipePhotoWithCallback(file, (err, dataUrl) => {
+            if (err) {
+                setPhotoError(err.message)
+            } else {
+                setEditFormData((prev) => ({ ...prev, photo: dataUrl }))
+                setPhotoAsyncMethod('Callback (FileReader onload event)')
+            }
+        })
+    }
+
+    // --- Promise Consumer Flow ---
+    async function handlePhotoSelectWithPromise() {
+        if (!selectedPhotoFile) {
+            setPhotoError('Please choose an image file first.')
+            return
+        }
+
+        setPhotoError('')
+
+        // Explicitly awaits the Promise helper:
+        try {
+            const dataUrl = await readRecipePhotoWithPromise(selectedPhotoFile)
+            setEditFormData((prev) => ({ ...prev, photo: dataUrl }))
+            setPhotoAsyncMethod('Promise (new Promise + async/await)')
+        } catch (err) {
+            setPhotoError(err.message)
+        }
+    }
+
     const [loadMethod, setLoadMethod] = useState('promise')
-
-    // =========================================================================
-    // JavaScript Async Concepts: Callbacks vs Promises Helpers
-    // =========================================================================
-
-    /**
-     * 1. CALLBACK-BASED ASYNCHRONOUS HELPER
-     * Follows the traditional error-first callback pattern: callback(error, data).
-     * Accepts a callback function and invokes it when the asynchronous operation completes.
-     */
-    function fetchSavedRecipesWithCallback(callback) {
-        fetch('http://localhost:5000/api/recipes')
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error('Failed to fetch saved recipes via callback.')
-                }
-                return response.json()
-            })
-            .then((data) => {
-                // Explicitly pass data on success: callback(null, data)
-                callback(null, data)
-            })
-            .catch((error) => {
-                // Explicitly pass error on failure: callback(error, null)
-                callback(error, null)
-            })
-    }
-
-    /**
-     * 2. PROMISE-BASED ASYNCHRONOUS HELPER
-     * Returns a Promise that resolves with data or rejects with an error.
-     * Consumed using async/await or .then()/.catch().
-     */
-    function fetchSavedRecipesWithPromise() {
-        return fetch('http://localhost:5000/api/recipes')
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error('Failed to fetch saved recipes via Promise.')
-                }
-                return response.json()
-            })
-    }
 
     // --- Promise-based loading function (default flow) ---
     async function loadWithPromise() {
         try {
             setLoading(true)
             setError('')
-            const data = await fetchSavedRecipesWithPromise()
+            const response = await fetch('http://localhost:5000/api/recipes')
+            if (!response.ok) {
+                throw new Error('Failed to fetch saved recipes.')
+            }
+            const data = await response.json()
             setRecipes(data)
             setLoadMethod('promise')
         } catch (err) {
@@ -108,21 +169,33 @@ function SavedRecipes() {
         }
     }
 
-    // --- Callback-based loading function (callback pattern flow) ---
+    // --- Callback-based reload handler ---
     function loadWithCallback() {
         setLoading(true)
         setError('')
-        fetchSavedRecipesWithCallback((err, data) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('GET', 'http://localhost:5000/api/recipes')
+        xhr.onload = function () {
             setLoading(false)
-            if (err) {
-                setError(err.message || 'Unable to load saved recipes via callback.')
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const data = JSON.parse(xhr.responseText)
+                    setRecipes(data)
+                    setLoadMethod('callback')
+                    setSuccessMessage('Loaded saved recipes using callback pattern.')
+                    setTimeout(() => setSuccessMessage(''), 3000)
+                } catch {
+                    setError('Failed to parse saved recipes response.')
+                }
             } else {
-                setRecipes(data || [])
-                setLoadMethod('callback')
-                setSuccessMessage('Loaded saved recipes using error-first callback pattern.')
-                setTimeout(() => setSuccessMessage(''), 3000)
+                setError('Failed to fetch saved recipes via callback.')
             }
-        })
+        }
+        xhr.onerror = function () {
+            setLoading(false)
+            setError('Network error while fetching saved recipes via callback.')
+        }
+        xhr.send()
     }
 
     useEffect(() => {
@@ -166,7 +239,11 @@ function SavedRecipes() {
             steps: Array.isArray(recipe.steps) && recipe.steps.length > 0
                 ? [...recipe.steps]
                 : [''],
+            photo: recipe.photo || null,
         })
+        setSelectedPhotoFile(null)
+        setPhotoError('')
+        setPhotoAsyncMethod('')
         setEditError('')
         setSuccessMessage('')
     }
@@ -174,6 +251,9 @@ function SavedRecipes() {
     function cancelEditing() {
         setEditingId(null)
         setEditFormData(null)
+        setSelectedPhotoFile(null)
+        setPhotoError('')
+        setPhotoAsyncMethod('')
         setEditError('')
     }
 
@@ -280,6 +360,7 @@ function SavedRecipes() {
                     description: editFormData.description.trim(),
                     ingredients: cleanedIngredients,
                     steps: cleanedSteps,
+                    photo: editFormData.photo || null,
                 }),
             })
 
@@ -290,12 +371,16 @@ function SavedRecipes() {
             }
 
             // Update recipe in local state
+            const updatedData = { ...data, photo: editFormData.photo || null }
             setRecipes((prev) =>
-                prev.map((recipe) => (recipe._id === editingId ? data : recipe))
+                prev.map((recipe) => (recipe._id === editingId ? updatedData : recipe))
             )
 
             setEditingId(null)
             setEditFormData(null)
+            setSelectedPhotoFile(null)
+            setPhotoError('')
+            setPhotoAsyncMethod('')
             setSuccessMessage(`"${data.name}" updated successfully!`)
             setTimeout(() => setSuccessMessage(''), 4000)
         } catch (err) {
@@ -491,6 +576,49 @@ function SavedRecipes() {
                                                 </div>
                                             </div>
 
+                                            <div className="form-group">
+                                                <label htmlFor={`edit-photo-${recipe._id}`}>Recipe Photo / Image Attachment</label>
+                                                <div className="photo-upload-controls">
+                                                    <input
+                                                        id={`edit-photo-${recipe._id}`}
+                                                        type="file"
+                                                        accept="image/*"
+                                                        onChange={handlePhotoSelectWithCallback}
+                                                        className="photo-file-input"
+                                                    />
+                                                    {selectedPhotoFile && (
+                                                        <button
+                                                            type="button"
+                                                            className="reload-async-btn photo-promise-btn"
+                                                            onClick={handlePhotoSelectWithPromise}
+                                                            title="Process the chosen photo using the native Promise helper"
+                                                        >
+                                                            ⚡ Process with Promise
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                {photoError && <p className="validation-error">{photoError}</p>}
+                                                {editFormData?.photo && (
+                                                    <div className="photo-preview-box">
+                                                        <img src={editFormData.photo} alt="Recipe preview" className="recipe-photo-thumbnail" />
+                                                        <div className="photo-preview-meta">
+                                                            <span className="photo-method-badge">{photoAsyncMethod}</span>
+                                                            <button
+                                                                type="button"
+                                                                className="remove-photo-btn"
+                                                                onClick={() => {
+                                                                    setEditFormData((prev) => ({ ...prev, photo: null }))
+                                                                    setSelectedPhotoFile(null)
+                                                                    setPhotoAsyncMethod('')
+                                                                }}
+                                                            >
+                                                                Remove photo
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
                                             <div className="edit-actions">
                                                 <button
                                                     type="submit"
@@ -546,6 +674,12 @@ function SavedRecipes() {
                                                     </button>
                                                 </div>
                                             </div>
+
+                                            {recipe.photo && (
+                                                <div className="recipe-display-photo-box">
+                                                    <img src={recipe.photo} alt={recipe.name} className="recipe-display-photo" />
+                                                </div>
+                                            )}
 
                                             {recipe.description && <p>{recipe.description}</p>}
 
