@@ -148,3 +148,178 @@ This prevents dangling/orphaned ObjectId references.
 | `DELETE` | `/api/users/saved-recipes/:recipeId` | `Bearer <token>` | Removes a Recipe ObjectId reference from `user.savedRecipes` (using `$pull`). |
 | `DELETE` | `/api/recipes/:id` | Public / Admin | Deletes a recipe document and cascades reference cleanup across all users. |
 | `GET` | `/api/recipes` | Public | Returns all standalone recipe documents. |
+| `GET` | `/api/recipes/stats` | Public | Returns ingredient frequency analytics computed via MongoDB Aggregation Pipeline. |
+
+---
+
+## 9. MongoDB Aggregation Pipelines (`Recipe.aggregate`)
+
+### 9.1 What is an Aggregation Pipeline?
+A **MongoDB Aggregation Pipeline** is a framework for multi-stage data processing modeled on data-processing pipelines. Documents enter a multi-stage pipeline where each stage transforms the documents as they pass through:
+- Filtering documents (`$match`)
+- Deconstructing array fields (`$unwind`)
+- Grouping and calculating accumulators (`$group`, `$sum`, `$avg`)
+- Sorting computed results (`$sort`)
+- Reshaping documents (`$project`)
+- Restricting result count (`$limit`)
+
+All aggregation operations execute **natively inside MongoDB's C++ database engine** before returning the final processed result to Node.js.
+
+---
+
+### 9.2 Use Case: Recipe Ingredient Frequency Analytics
+
+Morselo provides an analytics endpoint (`GET /api/recipes/stats`) to analyze ingredient utilization patterns across the entire recipe collection.
+
+#### Conceptual Workflow:
+```
+┌────────────────────────┐
+│  All Recipe Documents  │  (Documents with embedded ingredients arrays)
+└───────────┬────────────┘
+            │
+            ▼  Stage 1: $match (Filter recipes with valid ingredients array)
+┌────────────────────────┐
+│   Filtered Recipes     │
+└───────────┬────────────┘
+            │
+            ▼  Stage 2: $unwind (Flatten ingredients: 1 doc per ingredient)
+┌────────────────────────┐
+│  Unwound Ingredients   │
+└───────────┬────────────┘
+            │
+            ▼  Stage 3: $match (Exclude empty or whitespace strings)
+┌────────────────────────┐
+│   Clean Ingredients    │
+└───────────┬────────────┘
+            │
+            ▼  Stage 4: $group (Group by ingredient, count occurrences via $sum: 1)
+┌────────────────────────┐
+│ Grouped Ingredient Sums│
+└───────────┬────────────┘
+            │
+            ▼  Stage 5: $sort (Sort by recipeCount DESC, ingredient name ASC)
+┌────────────────────────┐
+│    Sorted Results      │
+└───────────┬────────────┘
+            │
+            ▼  Stage 6: $project (Shape clean JSON: { ingredient, recipeCount })
+┌────────────────────────┐
+│ Final Analytics Array  │
+└────────────────────────┘
+```
+
+---
+
+### 9.3 Pipeline Stage Breakdown
+
+In [`server/server.js`](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/server.js):
+
+```javascript
+const pipeline = [
+    // Stage 1: $match
+    // Filters out documents that lack a non-empty ingredients array
+    {
+        $match: {
+            ingredients: { $exists: true, $type: 'array', $ne: [] },
+        },
+    },
+    // Stage 2: $unwind
+    // Deconstructs the embedded ingredients array field so each ingredient becomes an independent document
+    {
+        $unwind: '$ingredients',
+    },
+    // Stage 3: $match
+    // Ensures only non-empty, valid string values are processed
+    {
+        $match: {
+            ingredients: { $type: 'string', $regex: /\S/ },
+        },
+    },
+    // Stage 4: $group
+    // Groups documents by trimmed ingredient name and counts frequency using the $sum accumulator
+    {
+        $group: {
+            _id: { $trim: { input: '$ingredients' } },
+            recipeCount: { $sum: 1 },
+        },
+    },
+    // Stage 5: $sort
+    // Orders ingredients by recipeCount descending, with alphabetical secondary sort
+    {
+        $sort: {
+            recipeCount: -1,
+            _id: 1,
+        },
+    },
+    // Stage 6: $project
+    // Reshapes output into a clean JSON structure, removing MongoDB internal _id
+    {
+        $project: {
+            _id: 0,
+            ingredient: '$_id',
+            recipeCount: 1,
+        },
+    },
+];
+
+// Optional Stage 7: $limit (if ?limit=N query parameter provided)
+if (req.query.limit) {
+    const parsedLimit = parseInt(req.query.limit, 10);
+    if (!isNaN(parsedLimit) && parsedLimit > 0) {
+        pipeline.push({ $limit: parsedLimit });
+    }
+}
+
+const stats = await Recipe.aggregate(pipeline);
+```
+
+---
+
+### 9.4 Why Aggregation is Preferable to JavaScript Array Processing
+
+| Factor | Native MongoDB Aggregation (`Recipe.aggregate`) | In-Memory JavaScript (`.find()` + `.map`/`.reduce`) |
+|---|---|---|
+| **Execution Location** | Database server engine (C++ compiled, multi-threaded) | Node.js application process (single-threaded JavaScript event loop) |
+| **Network Overhead** | **Minimal**: Only the final aggregated statistical summary is sent over the network. | **High**: Entire collection with full recipe documents, instructions, and timestamps transferred across network. |
+| **Memory Consumption** | **Minimal Node.js memory**: Database streams and groups in chunks. | **High**: Risk of `JavaScript heap out of memory` when collection grows to thousands of recipes. |
+| **Performance** | Can utilize database indexes and query optimization plans. | Unindexed sequential traversal in JavaScript memory. |
+| **Event Loop Impact** | Zero event loop blocking; Node.js simply awaits the database response. | Heavy CPU loops block Node.js event loop, degrading API response times for other concurrent users. |
+
+---
+
+### 9.5 Example Request and Response
+
+#### Request:
+```http
+GET /api/recipes/stats?limit=5 HTTP/1.1
+Host: localhost:5000
+```
+
+#### Response:
+```json
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+[
+  {
+    "ingredient": "Garlic",
+    "recipeCount": 8
+  },
+  {
+    "ingredient": "Olive Oil",
+    "recipeCount": 6
+  },
+  {
+    "ingredient": "Onion",
+    "recipeCount": 5
+  },
+  {
+    "ingredient": "Salt",
+    "recipeCount": 5
+  },
+  {
+    "ingredient": "Tomato",
+    "recipeCount": 4
+  }
+]
+```

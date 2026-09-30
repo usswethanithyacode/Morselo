@@ -212,6 +212,68 @@ app.get('/api/recipes', async (req, res) => {
     }
 })
 
+// --- MongoDB Aggregation Pipeline: Recipe Ingredient Analytics ---
+app.get('/api/recipes/stats', async (req, res) => {
+    try {
+        const pipeline = [
+            // Stage 1: Match documents having a non-empty ingredients array
+            {
+                $match: {
+                    ingredients: { $exists: true, $type: 'array', $ne: [] },
+                },
+            },
+            // Stage 2: Deconstruct ingredients array into individual documents
+            {
+                $unwind: '$ingredients',
+            },
+            // Stage 3: Filter for non-empty string entries
+            {
+                $match: {
+                    ingredients: { $type: 'string', $regex: /\S/ },
+                },
+            },
+            // Stage 4: Group by trimmed ingredient name and count occurrences
+            {
+                $group: {
+                    _id: { $trim: { input: '$ingredients' } },
+                    recipeCount: { $sum: 1 },
+                },
+            },
+            // Stage 5: Sort by frequency descending, then ingredient name alphabetically
+            {
+                $sort: {
+                    recipeCount: -1,
+                    _id: 1,
+                },
+            },
+            // Stage 6: Project clean output fields
+            {
+                $project: {
+                    _id: 0,
+                    ingredient: '$_id',
+                    recipeCount: 1,
+                },
+            },
+        ]
+
+        // Optional query parameter ?limit=N
+        if (req.query.limit) {
+            const parsedLimit = parseInt(req.query.limit, 10)
+            if (!isNaN(parsedLimit) && parsedLimit > 0) {
+                pipeline.push({ $limit: parsedLimit })
+            }
+        }
+
+        const stats = await Recipe.aggregate(pipeline)
+        return res.status(200).json(stats)
+    } catch (error) {
+        console.error('Error calculating recipe statistics via aggregation:', error)
+        return res.status(500).json({
+            error: 'Could not calculate recipe statistics. Please try again.',
+        })
+    }
+})
+
 app.post('/api/recipes', async (req, res) => {
     if (!req.body || typeof req.body !== 'object') {
         return res.status(400).json({
