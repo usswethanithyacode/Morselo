@@ -125,8 +125,47 @@ function App() {
     }
   }
 
+  const [copyStatus, setCopyStatus] = useState('idle')
+  const [savingRecipe, setSavingRecipe] = useState(false)
+
+  // --- JavaScript Event Loop Implementation: Copy Recipe to Clipboard ---
+  // Demonstrates:
+  // 1. Synchronous Execution (Call Stack): Validates recipe data, synchronously formats recipe text, sets copy status
+  // 2. Promise / Microtask Queue: Async clipboard API Promise settlement in microtask queue
+  // 3. Macrotask Queue (Timer Task): setTimeout scheduled callback in macrotask queue for auto-reverting button state
+  async function copyRecipe() {
+    if (!recipes?.recipe) return
+
+    // 1. Synchronous Execution (Call Stack)
+    const formattedRecipe = `🍽️ ${recipes.recipe.name}\n\n${recipes.recipe.description || ''}\n\nIngredients:\n${(recipes.recipe.ingredients || []).map((i) => `- ${i}`).join('\n')}\n\nCooking Steps:\n${(recipes.recipe.steps || []).map((s, idx) => `${idx + 1}. ${s}`).join('\n')}`
+    setCopyStatus('copying')
+
+    // 2. Microtask Queue (Promise resolution)
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(formattedRecipe)
+      } else {
+        await Promise.resolve()
+      }
+      setCopyStatus('copied')
+    } catch {
+      setCopyStatus('idle')
+      return
+    }
+
+    // 3. Macrotask Queue (Timer phase callback)
+    setTimeout(() => {
+      setCopyStatus('idle')
+    }, 2500)
+  }
+
+  // --- JavaScript Event Loop Implementation: Save Recipe Flow ---
+  // Demonstrates:
+  // 1. Synchronous Execution (Call Stack): State checks, validation, immediate saving state update
+  // 2. Promise / Microtask Queue: fetch() network request resolving asynchronously in microtask queue
+  // 3. Macrotask Queue (Timer Task): setTimeout callback queued in timers phase to auto-dismiss save message
   async function saveRecipe() {
-    if (!recipes?.recipe) {
+    if (!recipes?.recipe || savingRecipe) {
       return
     }
 
@@ -136,8 +175,12 @@ function App() {
 
     if (alreadySaved) {
       setSaveMessage('This recipe is already saved!')
+      setTimeout(() => setSaveMessage(''), 3000)
       return
     }
+
+    setSavingRecipe(true)
+    setSaveMessage('')
 
     try {
       const response = await fetch('http://localhost:5000/api/recipes', {
@@ -170,6 +213,12 @@ function App() {
         JSON.stringify(updatedSavedRecipes)
       )
       setSaveMessage('Recipe saved to your collection!')
+    } finally {
+      setSavingRecipe(false)
+      // Macrotask: Enqueue auto-dismissal into the Event Loop timer queue
+      setTimeout(() => {
+        setSaveMessage('')
+      }, 3500)
     }
   }
 
@@ -332,16 +381,27 @@ function App() {
 
             <p>You picked: {selectedIngredients.join(', ')}</p>
 
-            <button
-              className="generate-button"
-              onClick={saveRecipe}
-              type="button"
-              disabled={recipeIsSaved}
-            >
-              {recipeIsSaved ? 'Saved!' : 'Save recipe'}
-            </button>
+            <div className="recipe-actions">
+              <button
+                className="generate-button"
+                onClick={saveRecipe}
+                type="button"
+                disabled={recipeIsSaved || savingRecipe}
+              >
+                {recipeIsSaved ? 'Saved!' : savingRecipe ? 'Saving...' : 'Save recipe'}
+              </button>
 
-            {saveMessage && <p role="status">{saveMessage}</p>}
+              <button
+                className="copy-recipe-button"
+                onClick={copyRecipe}
+                type="button"
+                disabled={copyStatus === 'copying'}
+              >
+                {copyStatus === 'copied' ? '✓ Copied!' : copyStatus === 'copying' ? 'Copying...' : '📋 Copy recipe'}
+              </button>
+            </div>
+
+            {saveMessage && <p className="save-status-message" role="status">{saveMessage}</p>}
           </section>
         )}
 

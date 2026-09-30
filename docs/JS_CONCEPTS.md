@@ -113,3 +113,45 @@ are **asynchronous**.
 2. When `await model.generateContent(...)` is reached, Node.js delegates the HTTPS network request to the OS and frees the Call Stack immediately.
 3. While the Gemini API processes the recipe prompt, the server's single thread is free to handle incoming requests from other users (e.g., `GET /api/ingredients` or user login).
 4. When the API response arrives, its callback/Promise resolution is queued in the microtask queue, resuming execution to send the HTTP response back to the client.
+
+---
+
+## 5. Frontend Browser Event Loop in Morselo
+
+Morselo's React frontend ([`src/App.jsx`](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/src/App.jsx)) demonstrates the complete **Browser JavaScript Event Loop** lifecycle across three execution stages:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                  1. Synchronous Call Stack               │
+│      (Validates data, formats text, sets loading state)  │
+└────────────────────────────┬─────────────────────────────┘
+                             │
+                   ┌─────────▼─────────┐
+                   │ 2. Microtask Queue│
+                   │ (Promises, fetch) │
+                   └─────────┬─────────┘
+                             │
+                   ┌─────────▼─────────┐
+                   │ 3. Macrotask Queue│
+                   │ (Timers/setTimeout│
+                   └───────────────────┘
+```
+
+### 1. `copyRecipe()` Pipeline
+1. **Synchronous Call Stack**:
+   - Validates existence of generated recipe.
+   - Synchronously constructs formatted markdown text (`🍽️ [Recipe Name]...`).
+   - Immediately sets `setCopyStatus('copying')`.
+2. **Microtask Queue (Promise Resolution)**:
+   - Invokes `navigator.clipboard.writeText(formattedRecipe)`.
+   - The clipboard Promise settles and enqueues its continuation into the **Microtask Queue**.
+   - React processes the state transition `setCopyStatus('copied')` before browser repainting.
+3. **Macrotask Queue (Timer Task)**:
+   - Registers `setTimeout(() => setCopyStatus('idle'), 2500)`.
+   - The browser Web API timer counts down and enqueues the callback into the **Macrotask (Task) Queue**.
+   - When the Call Stack and Microtask Queue are both clear, the Event Loop picks up the timer callback and reverts button state back to `idle`.
+
+### 2. `saveRecipe()` Pipeline
+1. **Synchronous Call Stack**: Checks if already saved, updates `savingRecipe(true)`, clears error states.
+2. **Microtask Queue**: `fetch('http://localhost:5000/api/recipes')` network Promise resolves in the microtask queue, parsing JSON and updating `savedRecipes` and `localStorage`.
+3. **Macrotask Queue**: Enqueues `setTimeout(() => setSaveMessage(''), 3500)` in the Task Queue to automatically dismiss the confirmation notification.
