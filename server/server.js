@@ -4,8 +4,10 @@ const express = require('express')
 const cors = require('cors')
 const mongoose = require('mongoose')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
+const jwt = require('jsonwebtoken')
 const Recipe = require('./models/Recipe')
 const { initDatabase, getCatalogIngredients, addCategoryWithIngredients } = require('./db')
+const authenticateToken = require('./middleware/auth')
 
 const app = express()
 const PORT = 5000
@@ -18,6 +20,47 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 app.get('/', (req, res) => {
     res.send('Morselo backend is running!')
 })
+
+// --- Authentication Endpoints (JWT) ---
+
+app.post('/api/auth/login', (req, res) => {
+    if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({ error: 'Invalid request body.' })
+    }
+
+    const { email, username, password } = req.body
+    const identity = (email || username || '').trim()
+
+    if (!identity || !password || typeof password !== 'string' || password.trim().length === 0) {
+        return res.status(400).json({
+            error: 'Please provide both an email/username and a password.',
+        })
+    }
+
+    const secret = process.env.JWT_SECRET || 'morselo_super_secret_jwt_key_2026'
+    const payload = {
+        id: 'user_' + Buffer.from(identity).toString('hex').slice(0, 8),
+        email: identity.includes('@') ? identity : `${identity}@morselo.local`,
+        username: identity.includes('@') ? identity.split('@')[0] : identity,
+    }
+
+    const token = jwt.sign(payload, secret, { expiresIn: '1h' })
+
+    return res.status(200).json({
+        message: 'Authentication successful',
+        token,
+        user: payload,
+    })
+})
+
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+    return res.status(200).json({
+        message: 'Authenticated user profile retrieved successfully',
+        user: req.user,
+    })
+})
+
+// --- Catalog & Recipe Endpoints ---
 
 app.get('/api/ingredients', async (req, res) => {
     const { category, sort } = req.query
@@ -46,7 +89,7 @@ app.get('/api/ingredients', async (req, res) => {
     }
 })
 
-app.post('/api/ingredients/batch', async (req, res) => {
+app.post('/api/ingredients/batch', authenticateToken, async (req, res) => {
     if (!req.body || typeof req.body !== 'object') {
         return res.status(400).json({ error: 'Invalid request body.' })
     }
