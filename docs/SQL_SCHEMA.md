@@ -1,12 +1,12 @@
 # Morselo SQL Relational Database Architecture
 
-This document describes the relational database design for Morselo's Ingredient Catalog using **SQLite** with `better-sqlite3`.
+This document describes the relational database design for Morselo's Ingredient Catalog using **PostgreSQL** (hosted on **Neon**) with the `pg` driver.
 
 ---
 
 ## 1. Overview & Separation of Concerns
 
-- **SQLite Database (`morselo.db`)**: Stores normalized, relational catalog data (ingredients categorized under taxonomy buckets). Excluded from version control via `.gitignore`.
+- **PostgreSQL (Neon)**: Stores normalized, relational catalog data (ingredients categorized under taxonomy buckets). Configured via `DATABASE_URL` with SSL enabled.
 - **MongoDB Atlas**: Stores flexible recipe documents (name, description, ingredients list, cooking steps, timestamps).
 
 ---
@@ -18,16 +18,15 @@ The catalog uses two normalized relational tables with explicit Primary Key (PK)
 ```sql
 -- 1. Categories Table (Parent)
 CREATE TABLE IF NOT EXISTS categories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
 );
 
 -- 2. Ingredients Table (Child)
 CREATE TABLE IF NOT EXISTS ingredients (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
-    category_id INTEGER NOT NULL,
-    FOREIGN KEY (category_id) REFERENCES categories(id)
+    category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT
 );
 
 -- 3. Foreign Key Index on Child Table
@@ -36,50 +35,26 @@ CREATE INDEX IF NOT EXISTS idx_ingredients_category_id ON ingredients(category_i
 
 ### Table Relationships & Keys
 - **`categories` Table**:
-  - `id`: `INTEGER PRIMARY KEY AUTOINCREMENT` (Primary Key). Uniquely identifies each ingredient category.
+  - `id`: `SERIAL PRIMARY KEY` (Primary Key). Uniquely identifies each category.
   - `name`: `TEXT NOT NULL UNIQUE`. Category name (e.g., "Dairy & Eggs", "Vegetables", "Pantry & Grains").
 - **`ingredients` Table**:
-  - `id`: `INTEGER PRIMARY KEY AUTOINCREMENT` (Primary Key). Uniquely identifies each ingredient.
+  - `id`: `SERIAL PRIMARY KEY` (Primary Key). Uniquely identifies each ingredient.
   - `name`: `TEXT NOT NULL UNIQUE`. Name of the ingredient (e.g., "Eggs", "Cheese", "Tomato").
-  - `category_id`: `INTEGER NOT NULL` (Foreign Key). References `categories(id)`. Ensures referential integrity.
-
-### Foreign Key Enforcement
-SQLite requires foreign keys to be explicitly enabled per connection. During database initialization in `server/db.js`, foreign key enforcement is turned on:
-```sql
-PRAGMA foreign_keys = ON;
-```
+  - `category_id`: `INTEGER NOT NULL REFERENCES categories(id)` (Foreign Key). Enforces relational integrity so that every ingredient must belong to a valid category.
 
 ---
 
 ## 3. Relational Indexing & Query Optimization
 
 ### Why `idx_ingredients_category_id` was Added
-1. **Foreign Key Indexing**: While SQLite automatically creates unique indexes for `PRIMARY KEY` and `UNIQUE` constraints (e.g., `sqlite_autoindex_categories_1` on `categories.name` and `sqlite_autoindex_ingredients_1` on `ingredients.name`), **foreign keys are not automatically indexed**.
-2. **Accelerating JOIN and Filter Operations**: When filtering by category (e.g., `WHERE categories.name = ?`), SQLite looks up the category row using its unique index, then performs a foreign key lookup on `ingredients.category_id`. With `idx_ingredients_category_id`, SQLite performs an indexed binary search (`SEARCH ingredients USING INDEX idx_ingredients_category_id (category_id=?)`) rather than a full table scan across `ingredients`.
-
-### Query Plan Analysis (`EXPLAIN QUERY PLAN`)
-For the filtered query:
-```sql
-EXPLAIN QUERY PLAN
-SELECT ingredients.id, ingredients.name, categories.name AS category
-FROM ingredients
-INNER JOIN categories ON ingredients.category_id = categories.id
-WHERE categories.name = ?
-ORDER BY ingredients.name ASC;
-```
-
-**Query Plan Output**:
-```
-1. SEARCH categories USING COVERING INDEX sqlite_autoindex_categories_1 (name=?)
-2. SEARCH ingredients USING INDEX idx_ingredients_category_id (category_id=?)
-3. USE TEMP B-TREE FOR ORDER BY
-```
+1. **Foreign Key Indexing**: PostgreSQL automatically creates unique b-tree indexes for `PRIMARY KEY` and `UNIQUE` constraints (e.g., `categories_pkey`, `categories_name_key`, and `ingredients_name_key`), but **foreign keys are not automatically indexed**.
+2. **Accelerating JOIN and Filter Operations**: When filtering by category (e.g., `WHERE categories.name = $1`), PostgreSQL looks up the category row using its unique index on `name`, then performs a foreign key lookup on `ingredients.category_id`. With `idx_ingredients_category_id`, PostgreSQL performs an indexed index scan (`Bitmap Index Scan on idx_ingredients_category_id`) rather than scanning all rows in `ingredients`.
 
 ---
 
 ## 4. Seed Data & Idempotence
 
-The initialization routine seeds standard categories and ingredients idempotently using `INSERT OR IGNORE`:
+The initialization routine seeds standard categories and ingredients idempotently using PostgreSQL `ON CONFLICT (name) DO NOTHING`:
 
 | Category | Ingredients |
 | :--- | :--- |
@@ -87,13 +62,13 @@ The initialization routine seeds standard categories and ingredients idempotentl
 | **Vegetables** | Tomato, Onion, Potato |
 | **Pantry & Grains** | Rice |
 
-Because `name` fields are `UNIQUE` and queries use `INSERT OR IGNORE`, restarting the server or re-running initialization will not duplicate data.
+Because `name` fields are `UNIQUE` and queries use `ON CONFLICT (name) DO NOTHING`, restarting the server or running initialization multiple times will never duplicate data.
 
 ---
 
 ## 5. Relational SQL JOIN Query
 
-The `GET /api/ingredients` endpoint queries SQLite using an `INNER JOIN` to fetch ingredients combined with their corresponding category names.
+The `GET /api/ingredients` endpoint queries PostgreSQL using an `INNER JOIN` to fetch ingredients combined with their corresponding category names.
 
 ### Base Query (Default)
 ```sql
@@ -107,7 +82,7 @@ ORDER BY categories.name ASC, ingredients.name ASC;
 ```
 
 ### Query with Category Filter (Parameterized)
-When `category` is supplied (e.g. `?category=Vegetables`), a parameterized `WHERE` clause is applied:
+When `category` is supplied (e.g. `?category=Vegetables`), a parameterized `WHERE` clause is applied using PostgreSQL `$1` placeholders to prevent SQL injection:
 ```sql
 SELECT 
     ingredients.id AS id,
@@ -115,7 +90,7 @@ SELECT
     categories.name AS category
 FROM ingredients
 INNER JOIN categories ON ingredients.category_id = categories.id
-WHERE categories.name = ?
+WHERE categories.name = $1
 ORDER BY categories.name ASC, ingredients.name ASC;
 ```
 
@@ -139,7 +114,7 @@ The `GET /api/ingredients` endpoint accepts two optional query parameters:
 
 | Parameter | Allowed Values | Description |
 | :--- | :--- | :--- |
-| `category` | String (e.g. `Vegetables`, `Dairy & Eggs`) | Filters ingredients by category name using parameterized SQL. |
+| `category` | String (e.g. `Vegetables`, `Dairy & Eggs`) | Filters ingredients by category name using parameterized SQL (`$1`). |
 | `sort` | `asc`, `desc` (case-insensitive) | Sorts ingredients alphabetically by name. Invalid values return `400 Bad Request`. |
 
 ### Example Requests & Responses
@@ -183,7 +158,7 @@ The `GET /api/ingredients` endpoint accepts two optional query parameters:
      ```
 
 6. **Unknown Category**
-   - **Request**: `GET /api/ingredients?category=NonExistent`
+   - **Request**: `GET /api/ingredients?category=DoesNotExist`
    - **Response**:
      ```json
      []

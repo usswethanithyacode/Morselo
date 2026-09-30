@@ -1,47 +1,62 @@
-const path = require('path')
-const Database = require('better-sqlite3')
+const { Pool } = require('pg')
 
-const dbPath = path.join(__dirname, 'morselo.db')
-let db
+let pool
 
-function initDatabase() {
+function getPool() {
+    if (!pool) {
+        if (!process.env.DATABASE_URL) {
+            throw new Error('DATABASE_URL is not defined in environment variables.')
+        }
+
+        pool = new Pool({
+            connectionString: process.env.DATABASE_URL,
+            ssl: {
+                rejectUnauthorized: false,
+            },
+        })
+    }
+    return pool
+}
+
+async function initDatabase() {
+    const db = getPool()
+
     try {
-        db = new Database(dbPath)
-        db.pragma('foreign_keys = ON')
+        // Verify database connectivity
+        await db.query('SELECT 1')
 
         // Create categories table
-        db.exec(`
+        await db.query(`
             CREATE TABLE IF NOT EXISTS categories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE
             );
         `)
 
         // Create ingredients table with foreign key reference to categories
-        db.exec(`
+        await db.query(`
             CREATE TABLE IF NOT EXISTS ingredients (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
-                category_id INTEGER NOT NULL,
-                FOREIGN KEY (category_id) REFERENCES categories(id)
+                category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT
             );
         `)
 
         // Create index on foreign key category_id to optimize JOINs and category filtering
-        db.exec(`
+        await db.query(`
             CREATE INDEX IF NOT EXISTS idx_ingredients_category_id ON ingredients(category_id);
         `)
 
-        seedCatalog()
-        console.log('SQLite ingredient catalog initialized successfully.')
+        await seedCatalog(db)
+        console.log('PostgreSQL ingredient catalog initialized successfully.')
         return db
     } catch (error) {
-        console.error('Failed to initialize SQLite database:', error.message)
+        console.error('Failed to initialize PostgreSQL database:', error.message)
         throw error
     }
 }
 
-function seedCatalog() {
+async function seedCatalog(db) {
     const seedData = [
         {
             category: 'Dairy & Eggs',
@@ -57,38 +72,31 @@ function seedCatalog() {
         },
     ]
 
-    const insertCategory = db.prepare(`
-        INSERT OR IGNORE INTO categories (name) VALUES (?)
-    `)
+    for (const item of seedData) {
+        await db.query(
+            `INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING;`,
+            [item.category]
+        )
 
-    const getCategoryId = db.prepare(`
-        SELECT id FROM categories WHERE name = ?
-    `)
+        const catRes = await db.query(
+            `SELECT id FROM categories WHERE name = $1;`,
+            [item.category]
+        )
 
-    const insertIngredient = db.prepare(`
-        INSERT OR IGNORE INTO ingredients (name, category_id) VALUES (?, ?)
-    `)
-
-    const seedTransaction = db.transaction(() => {
-        for (const item of seedData) {
-            insertCategory.run(item.category)
-            const catRow = getCategoryId.get(item.category)
-            if (catRow && catRow.id) {
-                for (const ingName of item.ingredients) {
-                    insertIngredient.run(ingName, catRow.id)
-                }
+        if (catRes.rows.length > 0) {
+            const categoryId = catRes.rows[0].id
+            for (const ingName of item.ingredients) {
+                await db.query(
+                    `INSERT INTO ingredients (name, category_id) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING;`,
+                    [ingName, categoryId]
+                )
             }
         }
-    })
-
-    seedTransaction()
+    }
 }
 
-function getCatalogIngredients(options = {}) {
-    if (!db) {
-        throw new Error('Database is not initialized.')
-    }
-
+async function getCatalogIngredients(options = {}) {
+    const db = getPool()
     const { category, sort } = options
     const params = []
     let query = `
@@ -101,8 +109,8 @@ function getCatalogIngredients(options = {}) {
     `
 
     if (category && typeof category === 'string' && category.trim().length > 0) {
-        query += ` WHERE categories.name = ?`
         params.push(category.trim())
+        query += ` WHERE categories.name = $${params.length}`
     }
 
     if (sort) {
@@ -118,12 +126,12 @@ function getCatalogIngredients(options = {}) {
         query += ` ORDER BY categories.name ASC, ingredients.name ASC`
     }
 
-    const stmt = db.prepare(query)
-    return params.length > 0 ? stmt.all(...params) : stmt.all()
+    const result = await db.query(query, params)
+    return result.rows
 }
 
 module.exports = {
     initDatabase,
     getCatalogIngredients,
-    getDb: () => db,
+    getPool,
 }

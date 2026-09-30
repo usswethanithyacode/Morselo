@@ -19,7 +19,7 @@ app.get('/', (req, res) => {
     res.send('Morselo backend is running!')
 })
 
-app.get('/api/ingredients', (req, res) => {
+app.get('/api/ingredients', async (req, res) => {
     const { category, sort } = req.query
 
     if (sort !== undefined) {
@@ -32,14 +32,14 @@ app.get('/api/ingredients', (req, res) => {
     }
 
     try {
-        const catalogRows = getCatalogIngredients({
+        const catalogRows = await getCatalogIngredients({
             category: typeof category === 'string' ? category : undefined,
             sort: typeof sort === 'string' ? sort.trim().toLowerCase() : undefined,
         })
         const ingredients = catalogRows.map((row) => row.name)
         return res.status(200).json(ingredients)
     } catch (error) {
-        console.error('Error fetching ingredient catalog:', error)
+        console.error('Error fetching ingredient catalog:', error.message)
         return res.status(500).json({
             error: 'Could not fetch ingredients. Please try again.',
         })
@@ -303,9 +303,9 @@ Do not use ingredients from the list as if the user has them unless they were pr
 
 async function startServer() {
     try {
-        initDatabase()
+        await initDatabase()
     } catch (error) {
-        console.error('SQLite initialization error:', error.message)
+        console.error('PostgreSQL initialization error:', error.message)
     }
 
     if (!process.env.MONGODB_URI) {
