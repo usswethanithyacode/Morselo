@@ -25,4 +25,8 @@ const recipeSchema = new mongoose.Schema(
     }
 )
 
+// Index on createdAt (descending) to optimize reverse-chronological recipe feed queries:
+// Recipe.find().sort({ createdAt: -1 })
+recipeSchema.index({ createdAt: -1 })
+
 module.exports = mongoose.model('Recipe', recipeSchema)

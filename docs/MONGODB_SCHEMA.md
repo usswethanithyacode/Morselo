@@ -323,3 +323,86 @@ Content-Type: application/json
   }
 ]
 ```
+
+---
+
+## 10. MongoDB Indexing for Query Performance
+
+### 10.1 What is a MongoDB Index?
+A **MongoDB Index** is a specialized B-tree data structure that stores a small portion of the collection's data set in an easy-to-traverse form. Without indexes, MongoDB must perform a **collection scan (`COLLSCAN`)**, examining every document in the collection to select those matching the query or sort order.
+
+With an index, MongoDB traverses the B-tree in $O(\log N)$ time and can perform an **index scan (`IXSCAN`)**, drastically reducing disk I/O, CPU overhead, and memory consumption.
+
+---
+
+### 10.2 Field Indexed & Schema Definition
+
+In [`server/models/Recipe.js`](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/models/Recipe.js):
+
+```javascript
+// Index on createdAt (descending) to optimize reverse-chronological recipe feed queries:
+recipeSchema.index({ createdAt: -1 });
+```
+
+- **Indexed Field**: `createdAt`
+- **Direction**: `-1` (Descending)
+- **Generated Index Name**: `createdAt_-1`
+
+---
+
+### 10.3 Why `createdAt: -1` Was Chosen
+
+1. **Core Application Read Path**: The primary public recipe discovery endpoint `GET /api/recipes` ([`server/server.js`](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/server.js)) queries the database with reverse-chronological ordering:
+   ```javascript
+   const recipes = await Recipe.find().sort({ createdAt: -1 });
+   ```
+2. **Eliminating In-Memory `SORT` Stages**: Without an index, MongoDB must load every matching document into RAM and execute a blocking in-memory sort. In MongoDB, in-memory sort operations fail if they exceed the 32MB RAM threshold. By indexing `{ createdAt: -1 }`, the database engine traverses the pre-sorted B-tree leaf nodes directly, feeding already-sorted document references directly into the `FETCH` stage.
+
+---
+
+### 10.4 Real Query Plan Evidence (`explain('executionStats')`)
+
+Live execution of `Recipe.find().sort({ createdAt: -1 }).explain('executionStats')` against Morselo's MongoDB Atlas cluster confirmed:
+
+#### 1. Index Registration Inspection (`getIndexes()`):
+```json
+{
+  "_id_": [["_id", 1]],
+  "createdAt_-1": [["createdAt", -1]]
+}
+```
+
+#### 2. Query Planner & Winning Plan:
+```json
+{
+  "stage": "FETCH",
+  "inputStage": {
+    "stage": "IXSCAN",
+    "keyPattern": {
+      "createdAt": -1
+    },
+    "indexName": "createdAt_-1",
+    "direction": "forward",
+    "isMultiKey": false
+  }
+}
+```
+
+#### 3. Execution Statistics:
+- **Winning Plan Stage**: `FETCH` $\rightarrow$ `IXSCAN`
+- **Index Name Used**: `createdAt_-1`
+- **Index Scan Direction**: `forward`
+- **In-Memory `SORT` Stage Avoided**: `true` (no `SORT` stage present in winning plan)
+- **Natural Selection**: The MongoDB query optimizer automatically chose `createdAt_-1` without requiring manual index hints.
+- **Execution Metrics**: `executionTimeMillis: 1`, `totalKeysExamined: 2`, `totalDocsExamined: 2`, `nReturned: 2`
+
+---
+
+### 10.5 Tradeoffs of MongoDB Indexes
+
+| Aspect | Benefit / Cost | Analysis |
+|---|---|---|
+| **Read Speed** | **High Benefit** | Query execution time drops from $O(N)$ full collection scan to $O(\log N)$ index scan; eliminates in-memory sorting bottlenecks. |
+| **Memory Efficiency** | **High Benefit** | Prevents RAM exhaustion from unbounded in-memory array sorts. |
+| **Write Overhead** | **Controlled Cost** | Every `insert`, `update` modifying `createdAt`, or `delete` requires updating the `createdAt_-1` B-tree index in addition to the collection data. In Morselo's read-heavy culinary application, the read performance gain far outweighs the minor write overhead. |
+| **Disk & RAM Storage** | **Controlled Cost** | Indexes consume additional storage space and RAM in the WiredTiger cache. Morselo selectively indexes only the high-frequency query paths to keep memory footprint lean. |
