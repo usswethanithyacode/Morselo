@@ -377,6 +377,12 @@ app.delete('/api/recipes/:id', async (req, res) => {
             })
         }
 
+        // Clean up references from any User document to prevent orphaned ObjectIds
+        await User.updateMany(
+            { savedRecipes: id },
+            { $pull: { savedRecipes: id } }
+        )
+
         return res.status(200).json({
             message: 'Recipe deleted successfully.',
             recipe: deletedRecipe,
@@ -386,6 +392,76 @@ app.delete('/api/recipes/:id', async (req, res) => {
         return res.status(500).json({
             error: 'Could not delete the recipe. Please try again.',
         })
+    }
+})
+
+// --- User Referenced Saved Recipes Endpoints (MongoDB Referencing & Populate) ---
+
+app.get('/api/users/saved-recipes', authenticateToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).populate('savedRecipes')
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' })
+        }
+        // Filter out any null elements in case a referenced document was removed
+        const validRecipes = (user.savedRecipes || []).filter(Boolean)
+        return res.status(200).json(validRecipes)
+    } catch (error) {
+        console.error('Error fetching user saved recipes:', error)
+        return res.status(500).json({ error: 'Could not fetch saved recipes.' })
+    }
+})
+
+app.post('/api/users/saved-recipes/:recipeId', authenticateToken, async (req, res) => {
+    const { recipeId } = req.params
+
+    if (!mongoose.Types.ObjectId.isValid(recipeId)) {
+        return res.status(400).json({ error: 'Invalid recipe ID format.' })
+    }
+
+    try {
+        const recipe = await Recipe.findById(recipeId)
+        if (!recipe) {
+            return res.status(404).json({ error: 'Recipe not found.' })
+        }
+
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user.id,
+            { $addToSet: { savedRecipes: recipe._id } },
+            { new: true }
+        ).populate('savedRecipes')
+
+        return res.status(200).json({
+            message: 'Recipe added to saved recipes successfully.',
+            savedRecipes: (updatedUser.savedRecipes || []).filter(Boolean),
+        })
+    } catch (error) {
+        console.error('Error saving recipe reference:', error)
+        return res.status(500).json({ error: 'Could not save recipe reference.' })
+    }
+})
+
+app.delete('/api/users/saved-recipes/:recipeId', authenticateToken, async (req, res) => {
+    const { recipeId } = req.params
+
+    if (!mongoose.Types.ObjectId.isValid(recipeId)) {
+        return res.status(400).json({ error: 'Invalid recipe ID format.' })
+    }
+
+    try {
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user.id,
+            { $pull: { savedRecipes: recipeId } },
+            { new: true }
+        ).populate('savedRecipes')
+
+        return res.status(200).json({
+            message: 'Recipe removed from saved recipes successfully.',
+            savedRecipes: (updatedUser.savedRecipes || []).filter(Boolean),
+        })
+    } catch (error) {
+        console.error('Error removing recipe reference:', error)
+        return res.status(500).json({ error: 'Could not remove recipe reference.' })
     }
 })
 

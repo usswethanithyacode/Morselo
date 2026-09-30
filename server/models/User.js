@@ -23,6 +23,13 @@ const userSchema = new mongoose.Schema(
             enum: ['user', 'admin'],
             default: 'user',
         },
+        // MongoDB Referencing: Array of ObjectIds pointing to independent Recipe documents
+        savedRecipes: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'Recipe',
+            },
+        ],
     },
     {
         timestamps: true,
