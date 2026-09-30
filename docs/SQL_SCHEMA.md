@@ -310,3 +310,116 @@ The `GET /api/ingredients` endpoint accepts two optional query parameters:
        }
      }
      ```
+
+---
+
+## 9. Database Normalization (1NF, 2NF, 3NF)
+
+### 9.1 Overview & Normalization Strategy
+**Database Normalization** is the structural process of organizing relational database tables to reduce data redundancy, eliminate modification anomalies (update, insertion, deletion), and enforce data integrity.
+
+Morselo's PostgreSQL ingredient catalog is modeled in **Third Normal Form (3NF)**:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Normalized 3NF Schema                     │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+               ┌───────────────┴───────────────┐
+               │                               │
+    ┌──────────▼──────────┐         ┌──────────▼──────────┐
+    │     categories      │         │     ingredients     │
+    ├─────────────────────┤         ├─────────────────────┤
+    │ id (PK, SERIAL)     │◄───┐    │ id (PK, SERIAL)     │
+    │ name (TEXT, UNIQUE) │    └───┼│ category_id (FK)    │
+    └─────────────────────┘         │ name (TEXT, UNIQUE) │
+                                    └─────────────────────┘
+```
+
+---
+
+### 9.2 First Normal Form (1NF)
+
+A relation is in **1NF** if and only if all attributes contain only **atomic (indivisible) scalar values**, each row is uniquely identifiable via a **Primary Key**, and there are **no repeating groups**.
+
+#### How Morselo Satisfies 1NF:
+1. **Scalar Column Types**: Every column (`id`, `name`, `category_id`) stores atomic scalar types (`INTEGER`, `TEXT`). No comma-separated strings or nested JSON arrays are stored in PostgreSQL table cells.
+2. **Explicit Primary Keys**:
+   - `categories.id`: `SERIAL PRIMARY KEY` (Unique integer identifier for each category).
+   - `ingredients.id`: `SERIAL PRIMARY KEY` (Unique integer identifier for each ingredient).
+3. **No Repeating Column Groups**: Attributes are not structured as repeating columns (e.g., `ingredient_1`, `ingredient_2`, `ingredient_3`). Each ingredient is an independent row.
+
+---
+
+### 9.3 Second Normal Form (2NF)
+
+A relation is in **2NF** if and only if it is in **1NF** and **every non-key attribute is fully functionally dependent on the entire primary key** (i.e., no partial key dependencies).
+
+#### How Morselo Satisfies 2NF:
+1. **Single-Column Primary Keys**: Both `categories` and `ingredients` utilize single-column surrogate primary keys (`id`).
+2. **Elimination of Partial Dependencies**: Partial functional dependencies can only occur when a table has a composite (multi-column) primary key. Because Morselo's tables use single-column primary keys:
+   - In `categories`: `id` $\rightarrow$ `name`
+   - In `ingredients`: `id` $\rightarrow$ `name`, `id` $\rightarrow$ `category_id`
+   Every non-key attribute depends on the *entire* primary key.
+
+---
+
+### 9.4 Third Normal Form (3NF)
+
+A relation is in **3NF** if and only if it is in **2NF** and **no non-key attribute is transitively dependent on the primary key** (i.e., no non-key attribute depends on another non-key attribute: $X \rightarrow Y \rightarrow Z$).
+
+#### How Morselo Satisfies 3NF:
+1. **No Transitive Dependencies**: In the `ingredients` table, the category name is **not stored**. Instead, `ingredients` stores only the foreign key reference `category_id` $\rightarrow$ `categories.id`.
+2. **Category Isolation**: All category-specific attributes (such as category `name`) reside exclusively in the parent `categories` table.
+3. **Functional Dependency Mappings**:
+   - `categories`: `id` $\rightarrow$ `name`
+   - `ingredients`: `id` $\rightarrow$ `name`, `id` $\rightarrow$ `category_id`
+   - Transitive dependency `ingredients.id -> category_id -> category_name` is eliminated within the `ingredients` table.
+
+---
+
+### 9.5 Comparison: Denormalized Schema vs. Morselo 3NF Schema
+
+If Morselo used an unnormalized / denormalized flat table:
+`ingredients_flat(id, ingredient_name, category_name)`
+
+| Anomaly Type | Denormalized (0NF / Flat) Issue | Morselo 3NF Solution |
+|---|---|---|
+| **Update Anomaly** | Renaming "Dairy & Eggs" to "Dairy & Poultry" requires updating hundreds of ingredient rows. If one row fails, data becomes inconsistent. | Category name is updated in **exactly one row** in `categories`. All referencing ingredients instantly reflect the update via JOIN. |
+| **Insertion Anomaly** | A new category (e.g., "Seafood") cannot be registered without creating a dummy or NULL ingredient row. | New categories are inserted cleanly into `categories` independently of ingredients. |
+| **Deletion Anomaly** | Deleting the last ingredient in "Pantry & Grains" (e.g., "Rice") inadvertently deletes the entire category from the system. | Ingredients can be deleted from `ingredients` while preserving the parent category record in `categories`. |
+| **Storage Redundancy** | Category strings (e.g., "Vegetables") are duplicated across thousands of rows. | Category string is stored **once**; child rows store lightweight 4-byte `INTEGER` foreign keys. |
+
+---
+
+### 9.6 Live Database Verification (`information_schema` Metadata)
+
+Querying PostgreSQL system catalogs on the live database confirms:
+
+```sql
+-- 1. Primary Key Verification
+SELECT tc.table_name, kcu.column_name, tc.constraint_type
+FROM information_schema.table_constraints tc
+JOIN information_schema.key_column_usage kcu
+  ON tc.constraint_name = kcu.constraint_name
+WHERE tc.table_schema = 'public'
+  AND tc.table_name IN ('categories', 'ingredients')
+  AND tc.constraint_type = 'PRIMARY KEY';
+```
+**Result**:
+- `categories`: PK on `id` (`categories_pkey`)
+- `ingredients`: PK on `id` (`ingredients_pkey`)
+
+```sql
+-- 2. Foreign Key Relationship Verification
+SELECT tc.table_name AS child_table, kcu.column_name AS fk_column,
+       ccu.table_name AS parent_table, ccu.column_name AS pk_column
+FROM information_schema.table_constraints tc
+JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = 'ingredients';
+```
+**Result**:
+- `ingredients.category_id` strictly references `categories.id` (`ingredients_category_id_fkey`).
+- `ingredients` contains **0 redundant category name columns**.
+- All columns have atomic scalar data types (`INTEGER`, `TEXT`).
