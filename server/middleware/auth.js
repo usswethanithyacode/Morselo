@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken')
 /**
  * JWT Authentication Middleware
  * Validates the JSON Web Token provided in the HTTP Authorization header.
- * Attaches the verified user payload to `req.user`.
+ * Attaches the verified user payload (including role) to `req.user`.
  */
 function authenticateToken(req, res, next) {
     const authHeader = req.headers.authorization || req.headers.Authorization
@@ -26,7 +26,10 @@ function authenticateToken(req, res, next) {
 
     try {
         const decoded = jwt.verify(token, secret)
-        req.user = decoded
+        req.user = {
+            ...decoded,
+            role: decoded.role || 'user',
+        }
         next()
     } catch (error) {
         if (error.name === 'TokenExpiredError') {
@@ -40,4 +43,31 @@ function authenticateToken(req, res, next) {
     }
 }
 
-module.exports = authenticateToken
+/**
+ * Role-Based Access Control (RBAC) Middleware
+ * Ensures the authenticated user possesses the required role to access the endpoint.
+ * Returns HTTP 403 Forbidden for authenticated users without permission.
+ */
+function requireRole(requiredRole) {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({
+                error: 'Access denied. User authentication required.',
+            })
+        }
+
+        const userRole = req.user.role || 'user'
+        if (userRole !== requiredRole) {
+            return res.status(403).json({
+                error: `Forbidden. Requires "${requiredRole}" role.`,
+            })
+        }
+
+        next()
+    }
+}
+
+module.exports = {
+    authenticateToken,
+    requireRole,
+}

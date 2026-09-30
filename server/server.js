@@ -9,7 +9,7 @@ const bcrypt = require('bcryptjs')
 const Recipe = require('./models/Recipe')
 const User = require('./models/User')
 const { initDatabase, getCatalogIngredients, addCategoryWithIngredients } = require('./db')
-const authenticateToken = require('./middleware/auth')
+const { authenticateToken, requireRole } = require('./middleware/auth')
 
 const app = express()
 const PORT = 5000
@@ -23,7 +23,7 @@ app.get('/', (req, res) => {
     res.send('Morselo backend is running!')
 })
 
-// --- Authentication Endpoints (JWT + Password Hashing) ---
+// --- Authentication Endpoints (JWT + Password Hashing + RBAC) ---
 
 app.post('/api/auth/register', async (req, res) => {
     if (!req.body || typeof req.body !== 'object') {
@@ -58,11 +58,13 @@ app.post('/api/auth/register', async (req, res) => {
         const saltRounds = 10
         const passwordHash = await bcrypt.hash(password, saltRounds)
 
-        // Store user document with hashed password only - never plaintext
+        // Store user document with hashed password and default "user" role
+        // Ignore any body.role to prevent privilege escalation
         const newUser = await User.create({
             email: cleanEmail,
             username: cleanUsername,
             passwordHash,
+            role: 'user',
         })
 
         const secret = process.env.JWT_SECRET || 'morselo_super_secret_jwt_key_2026'
@@ -70,6 +72,7 @@ app.post('/api/auth/register', async (req, res) => {
             id: newUser._id.toString(),
             email: newUser.email,
             username: newUser.username,
+            role: newUser.role || 'user',
         }
 
         const token = jwt.sign(payload, secret, { expiresIn: '1h' })
@@ -119,11 +122,13 @@ app.post('/api/auth/login', async (req, res) => {
             })
         }
 
+        const userRole = user.role || 'user'
         const secret = process.env.JWT_SECRET || 'morselo_super_secret_jwt_key_2026'
         const payload = {
             id: user._id.toString(),
             email: user.email,
             username: user.username,
+            role: userRole,
         }
 
         const token = jwt.sign(payload, secret, { expiresIn: '1h' })
@@ -175,7 +180,7 @@ app.get('/api/ingredients', async (req, res) => {
     }
 })
 
-app.post('/api/ingredients/batch', authenticateToken, async (req, res) => {
+app.post('/api/ingredients/batch', authenticateToken, requireRole('admin'), async (req, res) => {
     if (!req.body || typeof req.body !== 'object') {
         return res.status(400).json({ error: 'Invalid request body.' })
     }
