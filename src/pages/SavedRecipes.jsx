@@ -49,27 +49,84 @@ function SavedRecipes() {
         }, 2500)
     }
 
-    useEffect(() => {
-        async function fetchSavedRecipes() {
-            try {
-                setLoading(true)
-                setError('')
-                const response = await fetch('http://localhost:5000/api/recipes')
+    const [loadMethod, setLoadMethod] = useState('promise')
 
+    // =========================================================================
+    // JavaScript Async Concepts: Callbacks vs Promises Helpers
+    // =========================================================================
+
+    /**
+     * 1. CALLBACK-BASED ASYNCHRONOUS HELPER
+     * Follows the traditional error-first callback pattern: callback(error, data).
+     * Accepts a callback function and invokes it when the asynchronous operation completes.
+     */
+    function fetchSavedRecipesWithCallback(callback) {
+        fetch('http://localhost:5000/api/recipes')
+            .then((response) => {
                 if (!response.ok) {
-                    throw new Error('Could not load saved recipes.')
+                    throw new Error('Failed to fetch saved recipes via callback.')
                 }
+                return response.json()
+            })
+            .then((data) => {
+                // Explicitly pass data on success: callback(null, data)
+                callback(null, data)
+            })
+            .catch((error) => {
+                // Explicitly pass error on failure: callback(error, null)
+                callback(error, null)
+            })
+    }
 
-                const data = await response.json()
-                setRecipes(data)
-            } catch (err) {
-                setError('Unable to load saved recipes. Please make sure the backend is running and try again.')
-            } finally {
-                setLoading(false)
-            }
+    /**
+     * 2. PROMISE-BASED ASYNCHRONOUS HELPER
+     * Returns a Promise that resolves with data or rejects with an error.
+     * Consumed using async/await or .then()/.catch().
+     */
+    function fetchSavedRecipesWithPromise() {
+        return fetch('http://localhost:5000/api/recipes')
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch saved recipes via Promise.')
+                }
+                return response.json()
+            })
+    }
+
+    // --- Promise-based loading function (default flow) ---
+    async function loadWithPromise() {
+        try {
+            setLoading(true)
+            setError('')
+            const data = await fetchSavedRecipesWithPromise()
+            setRecipes(data)
+            setLoadMethod('promise')
+        } catch (err) {
+            setError(err.message || 'Unable to load saved recipes. Please make sure the backend is running and try again.')
+        } finally {
+            setLoading(false)
         }
+    }
 
-        fetchSavedRecipes()
+    // --- Callback-based loading function (callback pattern flow) ---
+    function loadWithCallback() {
+        setLoading(true)
+        setError('')
+        fetchSavedRecipesWithCallback((err, data) => {
+            setLoading(false)
+            if (err) {
+                setError(err.message || 'Unable to load saved recipes via callback.')
+            } else {
+                setRecipes(data || [])
+                setLoadMethod('callback')
+                setSuccessMessage('Loaded saved recipes using error-first callback pattern.')
+                setTimeout(() => setSuccessMessage(''), 3000)
+            }
+        })
+    }
+
+    useEffect(() => {
+        loadWithPromise()
     }, [])
 
     async function deleteRecipe(id) {
@@ -267,7 +324,35 @@ function SavedRecipes() {
             </section>
 
             <section className="ingredient-section">
-                <h2>Your saved collection</h2>
+                <div className="collection-header-row">
+                    <h2>Your saved collection</h2>
+                    <div className="async-action-buttons">
+                        <button
+                            type="button"
+                            className="reload-async-btn"
+                            onClick={loadWithCallback}
+                            disabled={loading || savingEdit}
+                            title="Fetch saved recipes using error-first callback pattern"
+                        >
+                            🔄 Reload (Callback)
+                        </button>
+                        <button
+                            type="button"
+                            className="reload-async-btn"
+                            onClick={loadWithPromise}
+                            disabled={loading || savingEdit}
+                            title="Fetch saved recipes using async/await Promise pattern"
+                        >
+                            ⚡ Reload (Promise)
+                        </button>
+                    </div>
+                </div>
+
+                {loadMethod && (
+                    <div className="async-status-pill">
+                        Active async method: <strong>{loadMethod === 'callback' ? 'Callback Pattern (callback(err, data))' : 'Promise Pattern (async/await)'}</strong>
+                    </div>
+                )}
 
                 {successMessage && (
                     <div className="success-banner" role="status">
