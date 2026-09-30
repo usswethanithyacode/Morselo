@@ -5,7 +5,9 @@ const cors = require('cors')
 const mongoose = require('mongoose')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 const Recipe = require('./models/Recipe')
+const User = require('./models/User')
 const { initDatabase, getCatalogIngredients, addCategoryWithIngredients } = require('./db')
 const authenticateToken = require('./middleware/auth')
 
@@ -21,9 +23,69 @@ app.get('/', (req, res) => {
     res.send('Morselo backend is running!')
 })
 
-// --- Authentication Endpoints (JWT) ---
+// --- Authentication Endpoints (JWT + Password Hashing) ---
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
+    if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({ error: 'Invalid request body.' })
+    }
+
+    const { email, username, password } = req.body
+    const cleanEmail = (email || '').trim().toLowerCase()
+    const cleanUsername = (username || (cleanEmail ? cleanEmail.split('@')[0] : '')).trim()
+
+    if (!cleanEmail || !password || typeof password !== 'string' || password.trim().length === 0) {
+        return res.status(400).json({
+            error: 'Please provide both an email and a password.',
+        })
+    }
+
+    if (password.length < 6) {
+        return res.status(400).json({
+            error: 'Password must be at least 6 characters long.',
+        })
+    }
+
+    try {
+        const existingUser = await User.findOne({ email: cleanEmail })
+        if (existingUser) {
+            return res.status(409).json({
+                error: 'A user with this email already exists.',
+            })
+        }
+
+        // Generate salt and hash the plaintext password using bcrypt (work factor 10)
+        const saltRounds = 10
+        const passwordHash = await bcrypt.hash(password, saltRounds)
+
+        // Store user document with hashed password only - never plaintext
+        const newUser = await User.create({
+            email: cleanEmail,
+            username: cleanUsername,
+            passwordHash,
+        })
+
+        const secret = process.env.JWT_SECRET || 'morselo_super_secret_jwt_key_2026'
+        const payload = {
+            id: newUser._id.toString(),
+            email: newUser.email,
+            username: newUser.username,
+        }
+
+        const token = jwt.sign(payload, secret, { expiresIn: '1h' })
+
+        return res.status(201).json({
+            message: 'User registered successfully',
+            token,
+            user: payload,
+        })
+    } catch (err) {
+        console.error('Error during user registration:', err.message)
+        return res.status(500).json({ error: 'Internal server error during registration.' })
+    }
+})
+
+app.post('/api/auth/login', async (req, res) => {
     if (!req.body || typeof req.body !== 'object') {
         return res.status(400).json({ error: 'Invalid request body.' })
     }
@@ -37,20 +99,44 @@ app.post('/api/auth/login', (req, res) => {
         })
     }
 
-    const secret = process.env.JWT_SECRET || 'morselo_super_secret_jwt_key_2026'
-    const payload = {
-        id: 'user_' + Buffer.from(identity).toString('hex').slice(0, 8),
-        email: identity.includes('@') ? identity : `${identity}@morselo.local`,
-        username: identity.includes('@') ? identity.split('@')[0] : identity,
+    try {
+        const cleanIdentity = identity.toLowerCase()
+        const user = await User.findOne({
+            $or: [{ email: cleanIdentity }, { username: identity }],
+        })
+
+        if (!user) {
+            return res.status(401).json({
+                error: 'Invalid email/username or password.',
+            })
+        }
+
+        // Verify submitted plaintext password against stored cryptographic hash
+        const isMatch = await bcrypt.compare(password, user.passwordHash)
+        if (!isMatch) {
+            return res.status(401).json({
+                error: 'Invalid email/username or password.',
+            })
+        }
+
+        const secret = process.env.JWT_SECRET || 'morselo_super_secret_jwt_key_2026'
+        const payload = {
+            id: user._id.toString(),
+            email: user.email,
+            username: user.username,
+        }
+
+        const token = jwt.sign(payload, secret, { expiresIn: '1h' })
+
+        return res.status(200).json({
+            message: 'Authentication successful',
+            token,
+            user: payload,
+        })
+    } catch (err) {
+        console.error('Error during user login:', err.message)
+        return res.status(500).json({ error: 'Internal server error during login.' })
     }
-
-    const token = jwt.sign(payload, secret, { expiresIn: '1h' })
-
-    return res.status(200).json({
-        message: 'Authentication successful',
-        token,
-        user: payload,
-    })
 })
 
 app.get('/api/auth/me', authenticateToken, (req, res) => {
