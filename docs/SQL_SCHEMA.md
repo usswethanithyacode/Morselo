@@ -119,33 +119,85 @@ const ingredients = await Ingredient.findAll({
 })
 ```
 
-### Generated SQL from Sequelize
+---
 
-When executed, Sequelize dynamically constructs and executes the parameterized relational `INNER JOIN` query:
+## 4. SQL Transactions (ACID Guarantees)
 
-```sql
-SELECT 
-    "Ingredient"."id", 
-    "Ingredient"."name", 
-    "Category"."name" AS "Category.name" 
-FROM "ingredients" AS "Ingredient" 
-INNER JOIN "categories" AS "Category" 
-    ON "Ingredient"."category_id" = "Category"."id" 
-ORDER BY "Category"."name" ASC, "Ingredient"."name" ASC;
+Morselo implements **Sequelize Managed Transactions** to ensure multi-step database writes adhere to **ACID** (Atomicity, Consistency, Isolation, Durability) guarantees.
+
+### 1. What is a Transaction in Morselo?
+When adding a new category and its associated ingredients (e.g., importing a whole category batch), multiple rows must be written across both the `categories` and `ingredients` tables. A transaction guarantees that:
+- **All changes succeed together**, OR
+- **All changes fail together** (preventing partial writes or empty orphaned categories).
+
+### 2. Implementation: `addCategoryWithIngredients`
+
+```javascript
+async function addCategoryWithIngredients({ category, ingredients }) {
+    return await sequelize.transaction(async (t) => {
+        // Step 1: Create or find the parent Category within the transaction
+        const [catRecord] = await Category.findOrCreate({
+            where: { name: category.trim() },
+            defaults: { name: category.trim() },
+            transaction: t,
+        })
+
+        // Step 2: Insert child ingredients bound to category_id within the same transaction
+        const createdIngredients = []
+        for (const ingName of ingredients) {
+            const [ingRecord] = await Ingredient.findOrCreate({
+                where: { name: ingName.trim() },
+                defaults: {
+                    name: ingName.trim(),
+                    category_id: catRecord.id,
+                },
+                transaction: t,
+            })
+            createdIngredients.push(ingRecord)
+        }
+
+        return {
+            category: catRecord.name,
+            categoryId: catRecord.id,
+            ingredients: createdIngredients.map((ing) => ing.name),
+        }
+    })
+}
 ```
+
+### 3. How Commit Works
+When all operations inside the `sequelize.transaction(...)` callback resolve successfully without errors, Sequelize automatically issues a `COMMIT` command to PostgreSQL:
+```sql
+START TRANSACTION;
+SELECT ... FROM "categories" ...;
+INSERT INTO "categories" ...;
+INSERT INTO "ingredients" ...;
+COMMIT;
+```
+All rows become permanently visible and consistent.
+
+### 4. How Rollback Works
+If any step inside the callback fails (such as an invalid data type, constraint violation, or thrown error), Sequelize automatically catches the exception and issues a `ROLLBACK` command to PostgreSQL:
+```sql
+START TRANSACTION;
+INSERT INTO "categories" ...;
+-- Error encountered on ingredient insertion
+ROLLBACK;
+```
+The database is completely restored to its state prior to the transaction, guaranteeing that neither the category nor any partial ingredients are persisted.
 
 ---
 
-## 4. Relational Indexing & Query Optimization
+## 5. Relational Indexing & Query Optimization
 
 - **Foreign Key Index (`idx_ingredients_category_id`)**: Accelerates foreign key lookups when joining `ingredients` with `categories` and filtering by category name.
 - Non-destructive startup synchronization ensures indexes and tables exist without altering existing data.
 
 ---
 
-## 5. Seed Data & Idempotence
+## 6. Seed Data & Idempotence
 
-The initialization routine seeds standard categories and ingredients idempotently using Sequelize's `findOrCreate`:
+The initialization routine seeds standard categories and ingredients idempotently inside a managed transaction using `findOrCreate`:
 
 | Category | Ingredients |
 | :--- | :--- |
@@ -155,7 +207,7 @@ The initialization routine seeds standard categories and ingredients idempotentl
 
 ---
 
-## 6. Query Parameters & API Examples
+## 7. Query Parameters & API Examples
 
 The `GET /api/ingredients` endpoint accepts two optional query parameters:
 
@@ -194,19 +246,23 @@ The `GET /api/ingredients` endpoint accepts two optional query parameters:
      ["Tomato", "Potato", "Onion"]
      ```
 
-5. **Invalid Sort Parameter**
-   - **Request**: `GET /api/ingredients?sort=invalid`
-   - **Response Status**: `400 Bad Request`
-   - **Response Body**:
+5. **Batch Transaction Endpoint**
+   - **Request**: `POST /api/ingredients/batch`
+   - **Body**:
      ```json
      {
-       "error": "Invalid sort parameter. Allowed values are \"asc\" or \"desc\"."
+       "category": "Herbs & Spices",
+       "ingredients": ["Basil", "Oregano", "Thyme"]
      }
      ```
-
-6. **Unknown Category**
-   - **Request**: `GET /api/ingredients?category=DoesNotExist`
    - **Response**:
      ```json
-     []
+     {
+       "message": "Category and ingredients added atomically via transaction.",
+       "result": {
+         "category": "Herbs & Spices",
+         "categoryId": 4,
+         "ingredients": ["Basil", "Oregano", "Thyme"]
+       }
+     }
      ```

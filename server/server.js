@@ -5,7 +5,7 @@ const cors = require('cors')
 const mongoose = require('mongoose')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const Recipe = require('./models/Recipe')
-const { initDatabase, getCatalogIngredients } = require('./db')
+const { initDatabase, getCatalogIngredients, addCategoryWithIngredients } = require('./db')
 
 const app = express()
 const PORT = 5000
@@ -42,6 +42,26 @@ app.get('/api/ingredients', async (req, res) => {
         console.error('Error fetching ingredient catalog:', error.message)
         return res.status(500).json({
             error: 'Could not fetch ingredients. Please try again.',
+        })
+    }
+})
+
+app.post('/api/ingredients/batch', async (req, res) => {
+    if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({ error: 'Invalid request body.' })
+    }
+
+    const { category, ingredients } = req.body
+
+    try {
+        const result = await addCategoryWithIngredients({ category, ingredients })
+        return res.status(201).json({
+            message: 'Category and ingredients added atomically via transaction.',
+            result,
+        })
+    } catch (error) {
+        return res.status(400).json({
+            error: error.message || 'Failed to process transaction.',
         })
     }
 })

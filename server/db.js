@@ -115,22 +115,77 @@ async function seedCatalog() {
         },
     ]
 
-    for (const item of seedData) {
-        const [categoryRecord] = await Category.findOrCreate({
-            where: { name: item.category },
-            defaults: { name: item.category },
+    await db.transaction(async (t) => {
+        for (const item of seedData) {
+            const [categoryRecord] = await Category.findOrCreate({
+                where: { name: item.category },
+                defaults: { name: item.category },
+                transaction: t,
+            })
+
+            for (const ingName of item.ingredients) {
+                await Ingredient.findOrCreate({
+                    where: { name: ingName },
+                    defaults: {
+                        name: ingName,
+                        category_id: categoryRecord.id,
+                    },
+                    transaction: t,
+                })
+            }
+        }
+    })
+}
+
+/**
+ * Atomically registers a category and its associated ingredients in PostgreSQL
+ * using a Sequelize managed transaction. If any step fails or violates constraints,
+ * the entire transaction is rolled back automatically.
+ */
+async function addCategoryWithIngredients({ category, ingredients }) {
+    if (!category || typeof category !== 'string' || category.trim().length === 0) {
+        throw new Error('Category name must be a non-empty string.')
+    }
+
+    if (!Array.isArray(ingredients) || ingredients.length === 0) {
+        throw new Error('Ingredients must be a non-empty array.')
+    }
+
+    for (const item of ingredients) {
+        if (!item || typeof item !== 'string' || item.trim().length === 0) {
+            throw new Error('Each ingredient name must be a non-empty string.')
+        }
+    }
+
+    const cleanedCategory = category.trim()
+    const cleanedIngredients = ingredients.map((i) => i.trim())
+
+    return await db.transaction(async (t) => {
+        const [catRecord] = await Category.findOrCreate({
+            where: { name: cleanedCategory },
+            defaults: { name: cleanedCategory },
+            transaction: t,
         })
 
-        for (const ingName of item.ingredients) {
-            await Ingredient.findOrCreate({
+        const createdIngredients = []
+        for (const ingName of cleanedIngredients) {
+            const [ingRecord] = await Ingredient.findOrCreate({
                 where: { name: ingName },
                 defaults: {
                     name: ingName,
-                    category_id: categoryRecord.id,
+                    category_id: catRecord.id,
                 },
+                transaction: t,
             })
+            createdIngredients.push(ingRecord)
         }
-    }
+
+        return {
+            category: catRecord.name,
+            categoryId: catRecord.id,
+            ingredients: createdIngredients.map((ing) => ing.name),
+        }
+    })
 }
 
 async function getCatalogIngredients(options = {}) {
@@ -183,5 +238,7 @@ module.exports = {
     Category,
     Ingredient,
     initDatabase,
+    seedCatalog,
+    addCategoryWithIngredients,
     getCatalogIngredients,
 }
