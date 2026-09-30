@@ -1,4 +1,4 @@
-# Morselo SQL Relational Database Architecture & ORM Design
+# Morselo SQL Relational Database Architecture, ORM & JOIN Design
 
 This document describes the relational database design for Morselo's Ingredient Catalog using **PostgreSQL** (hosted on **Neon**) with the **Sequelize ORM** (`sequelize` / `pg`).
 
@@ -16,39 +16,117 @@ This document describes the relational database design for Morselo's Ingredient 
 The catalog is modeled around two normalized relational tables with explicit Primary Key (PK) and Foreign Key (FK) constraints:
 
 ```sql
--- 1. Categories Table (Parent)
+-- 1. Categories Table (Parent Table)
 CREATE TABLE IF NOT EXISTS categories (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
 );
 
--- 2. Ingredients Table (Child)
+-- 2. Ingredients Table (Child Table)
 CREATE TABLE IF NOT EXISTS ingredients (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT
 );
 
--- 3. Foreign Key Index on Child Table
+-- 3. Foreign Key Index on Child Table for Fast JOIN Lookup
 CREATE INDEX IF NOT EXISTS idx_ingredients_category_id ON ingredients(category_id);
 ```
 
 ### Table Relationships & Keys
-- **`categories` Table**:
+- **`categories` Table (Parent)**:
   - `id`: `SERIAL PRIMARY KEY` (Primary Key). Uniquely identifies each category.
   - `name`: `TEXT NOT NULL UNIQUE`. Category name (e.g., "Dairy & Eggs", "Vegetables", "Pantry & Grains").
-- **`ingredients` Table**:
+- **`ingredients` Table (Child)**:
   - `id`: `SERIAL PRIMARY KEY` (Primary Key). Uniquely identifies each ingredient.
   - `name`: `TEXT NOT NULL UNIQUE`. Name of the ingredient (e.g., "Eggs", "Cheese", "Tomato").
-  - `category_id`: `INTEGER NOT NULL REFERENCES categories(id)` (Foreign Key). Enforces relational integrity so that every ingredient must belong to a valid category.
+  - `category_id`: `INTEGER NOT NULL REFERENCES categories(id)` (Foreign Key). Enforces relational integrity so that every ingredient is bound to a valid parent category.
 
 ---
 
-## 3. ORM Usage — Sequelize
+## 3. SQL JOINs (PostgreSQL)
 
-Morselo utilizes the **Sequelize ORM** (`sequelize` v6) to define relational models, manage associations, and execute relational `INNER JOIN` queries.
+### 1. Two Related Tables
+- **Parent Table**: `categories` (taxonomy bucket)
+- **Child Table**: `ingredients` (individual culinary ingredients)
 
-### Model Definitions & Associations ([server/db.js](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/db.js))
+### 2. Primary Key / Foreign Key Relationship
+- **Primary Key**: `categories.id`
+- **Foreign Key**: `ingredients.category_id` (references `categories.id`)
+
+### 3. Why the JOIN is Needed
+In a normalized relational database (3NF), category metadata is decoupled from ingredient records to prevent duplicate data, update anomalies, and inconsistencies. When retrieving catalog items for recipe generation or category filtering, Morselo must query both tables simultaneously to match each ingredient with its category name in a single efficient query.
+
+### 4. JOIN Type Used: `INNER JOIN`
+Morselo utilizes an **`INNER JOIN`** because every active ingredient in the catalog must belong to an existing category. Only rows where `ingredients.category_id` strictly matches `categories.id` are returned.
+
+### 5. Equivalent Raw SQL Concept & Query
+```sql
+SELECT
+    ingredients.id,
+    ingredients.name AS ingredient_name,
+    categories.name AS category_name
+FROM ingredients
+INNER JOIN categories
+    ON ingredients.category_id = categories.id
+ORDER BY categories.name ASC, ingredients.name ASC;
+```
+
+When filtering by category (e.g., "Vegetables"):
+```sql
+SELECT
+    ingredients.id,
+    ingredients.name AS ingredient_name,
+    categories.name AS category_name
+FROM ingredients
+INNER JOIN categories
+    ON ingredients.category_id = categories.id
+WHERE categories.name = 'Vegetables'
+ORDER BY ingredients.name ASC;
+```
+
+### 6. How Sequelize Represents the Relationship & Generates the JOIN
+In [`server/db.js`](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/db.js):
+
+1. **Association Definition**:
+   ```javascript
+   Category.hasMany(Ingredient, { foreignKey: 'category_id' });
+   Ingredient.belongsTo(Category, { foreignKey: 'category_id' });
+   ```
+2. **Eager Loading Query**:
+   ```javascript
+   const ingredients = await Ingredient.findAll({
+       attributes: ['id', 'name'],
+       include: [{
+           model: Category,
+           attributes: ['name'],
+           required: true, // Instructs Sequelize to emit an SQL INNER JOIN
+           where: category ? { name: category.trim() } : undefined,
+       }],
+       order: orderClause,
+   });
+   ```
+3. **Actual Generated SQL Captured from PostgreSQL**:
+   ```sql
+   SELECT "Ingredient"."id", "Ingredient"."name", "Category"."id" AS "Category.id", "Category"."name" AS "Category.name"
+   FROM "ingredients" AS "Ingredient"
+   INNER JOIN "categories" AS "Category"
+       ON "Ingredient"."category_id" = "Category"."id"
+   ORDER BY "Category"."name" ASC, "Ingredient"."name" ASC;
+   ```
+
+### 7. Which Morselo Endpoint Demonstrates the JOIN
+- **`GET /api/ingredients`**: Calls `getCatalogIngredients()` executing the Sequelize `INNER JOIN` query.
+- **`GET /api/ingredients?category=Vegetables`**: Applies parameter filtering on the joined `categories` table.
+- **`GET /api/ingredients?sort=asc|desc`**: Applies sorting to the joined dataset.
+
+---
+
+## 4. ORM Usage — Sequelize Models & Schema Mapping
+
+Morselo utilizes the **Sequelize ORM** (`sequelize` v6) to define relational models, manage associations, and execute relational queries without manual string concatenation.
+
+### Model Definitions ([server/db.js](file:///c:/Users/usswe/OneDrive/Desktop/Morselo/server/db.js))
 
 ```javascript
 const { Sequelize, DataTypes } = require('sequelize')
@@ -100,33 +178,14 @@ Category.hasMany(Ingredient, { foreignKey: 'category_id' })
 Ingredient.belongsTo(Category, { foreignKey: 'category_id' })
 ```
 
-### ORM Eager Loading (`INNER JOIN`) Query
-
-The `getCatalogIngredients()` function uses Sequelize's `findAll` with eager loading (`include: [Category]`):
-
-```javascript
-const ingredients = await Ingredient.findAll({
-    attributes: ['id', 'name'],
-    include: [{
-        model: Category,
-        attributes: ['name'],
-        required: true, // Forces INNER JOIN
-        where: category ? { name: category } : undefined, // Parameterized filtering
-    }],
-    order: sort
-        ? [['name', sort.toUpperCase()]]
-        : [[{ model: Category }, 'name', 'ASC'], ['name', 'ASC']],
-})
-```
-
 ---
 
-## 4. SQL Transactions (ACID Guarantees)
+## 5. SQL Transactions (ACID Guarantees)
 
 Morselo implements **Sequelize Managed Transactions** to ensure multi-step database writes adhere to **ACID** (Atomicity, Consistency, Isolation, Durability) guarantees.
 
 ### 1. What is a Transaction in Morselo?
-When adding a new category and its associated ingredients (e.g., importing a whole category batch), multiple rows must be written across both the `categories` and `ingredients` tables. A transaction guarantees that:
+When adding a new category and its associated ingredients (e.g., importing a category batch), multiple rows must be written across both the `categories` and `ingredients` tables. A transaction guarantees that:
 - **All changes succeed together**, OR
 - **All changes fail together** (preventing partial writes or empty orphaned categories).
 
@@ -166,36 +225,21 @@ async function addCategoryWithIngredients({ category, ingredients }) {
 ```
 
 ### 3. How Commit Works
-When all operations inside the `sequelize.transaction(...)` callback resolve successfully without errors, Sequelize automatically issues a `COMMIT` command to PostgreSQL:
-```sql
-START TRANSACTION;
-SELECT ... FROM "categories" ...;
-INSERT INTO "categories" ...;
-INSERT INTO "ingredients" ...;
-COMMIT;
-```
-All rows become permanently visible and consistent.
+When all operations inside `sequelize.transaction(...)` resolve successfully without errors, Sequelize issues a `COMMIT` command to PostgreSQL, making the changes permanent.
 
 ### 4. How Rollback Works
-If any step inside the callback fails (such as an invalid data type, constraint violation, or thrown error), Sequelize automatically catches the exception and issues a `ROLLBACK` command to PostgreSQL:
-```sql
-START TRANSACTION;
-INSERT INTO "categories" ...;
--- Error encountered on ingredient insertion
-ROLLBACK;
-```
-The database is completely restored to its state prior to the transaction, guaranteeing that neither the category nor any partial ingredients are persisted.
+If any step inside the callback fails (such as an invalid data type or constraint violation), Sequelize automatically catches the exception and issues a `ROLLBACK` command to PostgreSQL, leaving the database unchanged.
 
 ---
 
-## 5. Relational Indexing & Query Optimization
+## 6. Relational Indexing & Query Optimization
 
-- **Foreign Key Index (`idx_ingredients_category_id`)**: Accelerates foreign key lookups when joining `ingredients` with `categories` and filtering by category name.
-- Non-destructive startup synchronization ensures indexes and tables exist without altering existing data.
+- **Foreign Key Index (`idx_ingredients_category_id`)**: Accelerates foreign key lookups when performing `INNER JOIN` operations between `ingredients` and `categories`.
+- Non-destructive startup synchronization ensures indexes and tables exist without altering existing catalog data.
 
 ---
 
-## 6. Seed Data & Idempotence
+## 7. Seed Data & Idempotence
 
 The initialization routine seeds standard categories and ingredients idempotently inside a managed transaction using `findOrCreate`:
 
@@ -207,7 +251,7 @@ The initialization routine seeds standard categories and ingredients idempotentl
 
 ---
 
-## 7. Query Parameters & API Examples
+## 8. Query Parameters & API Examples
 
 The `GET /api/ingredients` endpoint accepts two optional query parameters:
 
@@ -246,8 +290,8 @@ The `GET /api/ingredients` endpoint accepts two optional query parameters:
      ["Tomato", "Potato", "Onion"]
      ```
 
-5. **Batch Transaction Endpoint**
-   - **Request**: `POST /api/ingredients/batch`
+5. **Batch Transaction Endpoint (Admin Protected)**
+   - **Request**: `POST /api/ingredients/batch` (`Authorization: Bearer <admin_token>`)
    - **Body**:
      ```json
      {
