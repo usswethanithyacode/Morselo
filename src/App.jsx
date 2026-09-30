@@ -56,27 +56,33 @@ function App() {
   }
 
   function addIngredient() {
-    const cleanedIngredient = newIngredient.trim()
+    // =========================================================================
+    // JavaScript Hoisting: Variable Hoisting (`var`) & Function Hoisting
+    // =========================================================================
+    // 1. Variable Hoisting:
+    //    `validationError` is accessed before its `var` declaration below.
+    //    In JavaScript, `var` declarations are hoisted to function scope with value `undefined`.
+    if (validationError === undefined) {
+      var validationError = null
+    }
+
+    // 2. Function Declaration Hoisting:
+    //    `sanitizeIngredientInput`, `checkIngredientExists`, and `formatCustomIngredient`
+    //    are invoked before their function declarations defined at the bottom of this scope.
+    const cleanedIngredient = sanitizeIngredientInput(newIngredient)
 
     if (cleanedIngredient === '') {
-      setIngredientError('Please enter an ingredient.')
+      validationError = 'Please enter an ingredient.'
+    } else if (checkIngredientExists(catalog, cleanedIngredient)) {
+      validationError = 'That ingredient is already added.'
+    }
+
+    if (validationError) {
+      setIngredientError(validationError)
       return
     }
 
-    const alreadyExists = catalog.some(
-      (item) => item.name.toLowerCase() === cleanedIngredient.toLowerCase()
-    )
-
-    if (alreadyExists) {
-      setIngredientError('That ingredient is already added.')
-      return
-    }
-
-    const newEntry = {
-      id: Date.now(),
-      name: cleanedIngredient,
-      category: 'Custom',
-    }
+    const newEntry = formatCustomIngredient(cleanedIngredient)
 
     setCatalog([...catalog, newEntry])
     setSelectedIngredients([...selectedIngredients, cleanedIngredient])
@@ -85,6 +91,25 @@ function App() {
     setRecipes(null)
     setError('')
     setSaveMessage('')
+
+    // --- Hoisted Function Declarations ---
+    function sanitizeIngredientInput(input) {
+      return typeof input === 'string' ? input.trim() : ''
+    }
+
+    function checkIngredientExists(items, name) {
+      return items.some(
+        (item) => item.name.toLowerCase() === name.toLowerCase()
+      )
+    }
+
+    function formatCustomIngredient(name) {
+      return {
+        id: Date.now(),
+        name,
+        category: 'Custom',
+      }
+    }
   }
 
   async function generateRecipes() {
