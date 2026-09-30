@@ -610,6 +610,41 @@ main {
   font-size: 15px;
 }
 
+.activity-log-container {
+  margin-top: 18px;
+  padding: 14px 18px;
+  background: #fff4f7;
+  border: 1px solid #ebd2dc;
+  border-radius: 12px;
+  text-align: left;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 2px 8px rgba(81, 59, 67, 0.04);
+}
+
+.activity-log-header {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8c576a;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.activity-log-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #513b43;
+  line-height: 1.6;
+}
+
+.activity-log-item {
+  margin-bottom: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
 .recipe-card .eyebrow {
   margin-bottom: 10px;
 }

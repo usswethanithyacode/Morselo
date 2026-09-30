@@ -14,6 +14,8 @@ function App() {
   })
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [activityStatus, setActivityStatus] = useState('')
+  const [generationLogs, setGenerationLogs] = useState([])
   const [error, setError] = useState('')
   const [ingredientError, setIngredientError] = useState('')
   const [saveMessage, setSaveMessage] = useState('')
@@ -95,6 +97,31 @@ function App() {
     setError('')
     setSaveMessage('')
 
+    // 1. Synchronous Execution (Call Stack)
+    const initialLogs = ['[1. Call Stack (Sync)] Starting recipe generation...']
+    setGenerationLogs(initialLogs)
+    setActivityStatus('Starting recipe generation...')
+
+    // 2. Promise Microtask (Microtask Queue)
+    // Executes immediately when the current Call Stack empties, prior to any timer callbacks
+    Promise.resolve().then(() => {
+      setGenerationLogs((prev) => [
+        ...prev,
+        '[2. Microtask Queue (Promise)] Preparing recipe payload and resolving parameters...',
+      ])
+      setActivityStatus('Preparing recipe request payload...')
+    })
+
+    // 3. Macrotask Queue (Timer Task via setTimeout)
+    // Executes in the Event Loop timers phase after Call Stack and Microtask Queue are drained
+    setTimeout(() => {
+      setGenerationLogs((prev) => [
+        ...prev,
+        '[3. Macrotask Queue (setTimeout)] Queueing API network dispatch...',
+      ])
+      setActivityStatus('Connecting to recipe synthesis service...')
+    }, 0)
+
     try {
       const response = await fetch(
         'http://localhost:5000/api/recipes/generate',
@@ -115,6 +142,11 @@ function App() {
         throw new Error(data.error || 'Could not generate recipes.')
       }
 
+      setGenerationLogs((prev) => [
+        ...prev,
+        '[4. Async Continuation (Promise.then)] Recipe received successfully!',
+      ])
+      setActivityStatus('Recipe created!')
       setRecipes(data)
     } catch (err) {
       setError(
@@ -353,8 +385,19 @@ function App() {
           <section className="recipe-card recipe-loading-card" aria-live="polite">
             <div className="generating-indicator">
               <div className="generating-spinner" aria-hidden="true"></div>
-              <p className="generating-text">Finding the perfect recipe for you...</p>
+              <p className="generating-text">{activityStatus || 'Finding the perfect recipe for you...'}</p>
             </div>
+
+            {generationLogs.length > 0 && (
+              <div className="activity-log-container">
+                <p className="activity-log-header">Recipe Generation Event Loop Activity:</p>
+                <ol className="activity-log-list">
+                  {generationLogs.map((log, index) => (
+                    <li key={index} className="activity-log-item">{log}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </section>
         )}
 
