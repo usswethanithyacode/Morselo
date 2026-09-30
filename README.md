@@ -1,16 +1,52 @@
-# React + Vite
+# Morselo 🍳✨
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> **A Little Inspiration for Your Kitchen** — An intelligent, full-stack recipe creation and kitchen inventory platform powered by React, Node.js Express, MongoDB Atlas, and PostgreSQL (Neon).
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🌟 Overview
 
-## React Compiler
+Morselo helps home cooks discover delicious recipes tailored to the ingredients currently in their pantry. It combines a relational ingredient catalog taxonomy with document-based recipe storage and AI-powered recipe synthesis.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## 🛠️ Architecture & Tech Stack
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- **Frontend**: React 19 + Vite + React Router + Modern Vanilla CSS (warm pastel aesthetics).
+- **Backend**: Node.js + Express REST API.
+- **Relational Database (SQL)**: PostgreSQL (Neon Cloud) managed via **Sequelize ORM** (Atomic transactions, Normalized 3NF Schema, `INNER JOIN` queries).
+- **Document Database (NoSQL)**: MongoDB Atlas managed via **Mongoose ODM** (Referencing relationships, Aggregation pipelines, Compound performance indexes).
+- **Security & Auth**: JWT-based authentication with bcrypt password hashing and Role-Based Access Control (RBAC).
+
+---
+
+## 🚀 Quick Start Guide
+
+### Prerequisites
+- Node.js (v18+ recommended)
+- npm
+
+### 1. Backend Setup
+```bash
+cd server
+npm install
+node server.js
+```
+The backend server runs on `http://localhost:5000`.
+
+### 2. Frontend Setup
+```bash
+# In the repository root:
+npm install
+npm run dev
+```
+The client application runs on `http://localhost:5173`.
+
+---
+
+## 🌿 Git & Collaboration Workflow
+
+Morselo adheres to structured Git branching standards:
+- **`master`**: Production-ready, stable main branch.
+- **`feature/<feature-name>`**: Dedicated short-lived branches created from `master` for isolated development and verification.
+- **Testing & Verification**: Every branch is strictly validated with automated test suites before merging into `master`.

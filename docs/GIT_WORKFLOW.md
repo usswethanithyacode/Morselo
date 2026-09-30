@@ -4,13 +4,18 @@ This document outlines the **Git Workflow** and engineering practices utilized i
 
 ---
 
-## 1. Branch Strategy
+## 1. Branch Strategy & Feature Branch Workflow
 
-Morselo follows a focused linear development model:
-- **Primary Branch**: `master`
-- **Remote Upstream**: `origin` (`https://github.com/usswethanithyacode/Morselo.git`)
-- **Tracking**: The local `master` branch directly tracks `origin/master`.
-- **Synchronization**: Every completed, tested, and verified feature checkpoint is pushed directly to `origin/master`, ensuring the repository history remains clean, sequential, and fully verifiable.
+Morselo follows a disciplined Git collaboration model:
+- **Primary Branch (`master`)**: The stable production-ready branch reflecting verified, fully-tested code.
+- **Feature Branches (`feature/<feature-name>`)**: Isolated branches created from `master` for discrete feature implementation, refactoring, or documentation enhancements.
+- **Workflow Lifecycle**:
+  1. Create a dedicated feature branch from updated `master`: `git checkout -b feature/<name>`
+  2. Implement changes, test, and make atomic commits on the feature branch.
+  3. Push feature branch to upstream: `git push -u origin feature/<name>`
+  4. Perform pre-merge validation and merge into `master`: `git checkout master && git merge feature/<name>`
+  5. Push synchronized `master` to `origin/master`: `git push origin master`
+- **Remote Upstream**: `origin` (`https://github.com/usswethanithyacode/Morselo.git`).
 
 ---
 
